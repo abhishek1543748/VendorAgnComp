@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Low-Level Design — Vendor-Agnostic Compliance Engine Backend</title>
+    <style>
+        :root {
+            --bg-primary: #0a0a0a;
+            --bg-secondary: #1a1a2e;
+            --bg-tertiary: #16213e;
+            --text-primary: #eaeaea;
+            --text-secondary: #a0a0a0;
+            --accent: #00d4ff;
+            --accent-secondary: #0099cc;
+            --border: #2a2a4a;
+            --code-bg: #0d1117;
+            --code-border: #3d3d5c;
+            --success: #4ade80;
+            --warning: #fbbf24;
+            --error: #f87171;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            color: var(--text-primary);
+            line-height: 1.7;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        /* Header */
+        header {
+            text-align: center;
+            padding: 60px 20px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 40px;
+        }
+
+        h1 {
+            font-size: 2.8rem;
+            color: var(--accent);
+            margin-bottom: 15px;
+            font-weight: 700;
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+        }
+
+        .subtitle {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        /* Table of Contents */
+        .toc {
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 50px;
+            border: 1px solid var(--border);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .toc h2 {
+            color: var(--accent);
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+            position: relative;
+            padding-bottom: 10px;
+        }
+
+        .toc h2::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 60px;
+            height: 3px;
+            background: var(--accent);
+            border-radius: 3px;
+        }
+
+        .toc ul {
+            list-style: none;
+            columns: 2;
+            gap: 30px;
+        }
+
+        .toc li {
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .toc a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: all 0.3s ease;
+            font-size: 0.95rem;
+        }
+
+        .toc a:hover {
+            color: var(--accent);
+            padding-left: 5px;
+        }
+
+        /* Sections */
+        section {
+            margin-bottom: 60px;
+            padding: 40px;
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            box-shadow: 0 5px 25px rgba(0, 0, 0, 0.2);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        section:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 40px rgba(0, 212, 255, 0.1);
+        }
+
+        h2 {
+            font-size: 1.8rem;
+            color: var(--accent);
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid var(--accent);
+            display: inline-block;
+        }
+
+        h3 {
+            font-size: 1.3rem;
+            color: var(--accent-secondary);
+            margin: 30px 0 15px 0;
+            padding-left: 15px;
+            border-left: 4px solid var(--accent-secondary);
+        }
+
+        h4 {
+            font-size: 1.1rem;
+            color: var(--text-primary);
+            margin: 25px 0 10px 0;
+        }
+
+        p {
+            color: var(--text-secondary);
+            margin-bottom: 18px;
+            text-align: justify;
+        }
+
+        /* Code Blocks */
+        pre {
+            background: var(--code-bg);
+            border: 1px solid var(--code-border);
+            border-radius: 8px;
+            padding: 20px;
+            overflow-x: auto;
+            margin: 20px 0;
+            box-shadow: 0 3px 15px rgba(0, 0, 0, 0.3);
+            position: relative;
+        }
+
+        pre::before {
+            content: attr(data-language);
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            background: var(--bg-tertiary);
+            color: var(--accent);
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        code {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 0.9rem;
+            color: #e6edf3;
+            line-height: 1.6;
+        }
+
+        .code-block {
+            background: var(--code-bg);
+            border: 1px solid var(--code-border);
+            border-radius: 8px;
+            padding: 20px;
+            overflow-x: auto;
+            margin: 20px 0;
+            box-shadow: 0 3px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 25px 0;
+            background: var(--code-bg);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 3px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            background: var(--bg-tertiary);
+            color: var(--accent);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 1px;
+        }
+
+        td {
+            color: var(--text-secondary);
+        }
+
+        tr:hover {
+            background: rgba(0, 212, 255, 0.05);
+        }
+
+        /* ASCII Diagrams */
+        .diagram {
+            font-family: 'Consolas', 'Courier New', monospace;
+            background: var(--code-bg);
+            border: 1px solid var(--code-border);
+            border-radius: 8px;
+            padding: 25px;
+            margin: 25px 0;
+            white-space: pre;
+            line-height: 1.5;
+            overflow-x: auto;
+            box-shadow: 0 3px 15px rgba(0, 0, 0, 0.3);
+            font-size: 0.85rem;
+        }
+
+        /* Blockquotes */
+        blockquote {
+            border-left: 4px solid var(--accent);
+            padding-left: 20px;
+            margin: 20px 0;
+            color: var(--text-secondary);
+            font-style: italic;
+            background: rgba(0, 212, 255, 0.05);
+            padding: 15px 20px;
+            border-radius: 0 8px 8px 0;
+        }
+
+        /* Lists */
+        ul, ol {
+            margin: 20px 0;
+            padding-left: 30px;
+        }
+
+        li {
+            margin-bottom: 10px;
+            color: var(--text-secondary);
+        }
+
+        /* Horizontal Rule */
+        hr {
+            border: none;
+            height: 1px;
+            background: var(--border);
+            margin: 30px 0;
+            opacity: 0.5;
+        }
+
+        /* Links */
+        a {
+            color: var(--accent);
+            text-decoration: none;
+            transition: all 0.3s ease;
+        }
+
+        a:hover {
+            color: var(--accent-secondary);
+            text-decoration: underline;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px 10px;
+            }
+
+            h1 {
+                font-size: 2rem;
+            }
+
+            h2 {
+                font-size: 1.4rem;
+            }
+
+            .toc ul {
+                columns: 1;
+            }
+
+            section {
+                padding: 20px;
+            }
+
+            pre, .diagram, table {
+                font-size: 0.8rem;
+            }
+        }
+
+        /* Scroll to top button */
+        .scroll-top {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 50px;
+            height: 50px;
+            background: var(--accent);
+            border: none;
+            border-radius: 50%;
+            color: var(--bg-primary);
+            font-size: 1.5rem;
+            cursor: pointer;
+            display: none;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 20px rgba(0, 212, 255, 0.3);
+            z-index: 1000;
+        }
+
+        .scroll-top:hover {
+            background: var(--accent-secondary);
+            transform: translateY(-3px);
+        }
+
+        /* Animation */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        section {
+            animation: fadeIn 0.6s ease forwards;
+        }
+
+        /* Syntax Highlighting */
+        .keyword { color: #ff7b72; }
+        .string { color: #a5d6ff; }
+        .comment { color: #6a9955; }
+        .number { color: #79c0ff; }
+        .function { color: #d2a8ff; }
+        .class { color: #7ee787; }
+        .decorator { color: #ffa657; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Low-Level Design — Vendor-Agnostic Compliance Engine Backend</h1>
+        <p class="subtitle">
+            <strong>Scope:</strong> everything needed to actually start writing code — tech stack decisions with reasoning, 
+            a tool-level architecture (not just colored boxes), data models, API contract, database schema, 
+            module-by-module design for all three lanes, deployment layout, and ready-to-use dummy data sources for each lane.
+        </p>
+    </header>
+
+    <div class="container">
+        <!-- Table of Contents -->
+        <nav class="toc">
+            <h2>Table of Contents</h2>
+            <ul>
+                <li><a href="#tech-stack">1. Tech Stack</a></li>
+                <li><a href="#architecture">2. Zoomed-in Architecture</a></li>
+                <li><a href="#repo-structure">3. Repository Structure</a></li>
+                <li><a href="#data-models">4. Core Data Models</a></li>
+                <li><a href="#db-schema">5. Database Schema</a></li>
+                <li><a href="#api-contract">6. API Contract</a></li>
+                <li><a href="#module-design">7. Module-by-Module Design</a></li>
+                <li><a href="#sequence-flow">8. Sequence Flow</a></li>
+                <li><a href="#deployment">9. Deployment</a></li>
+                <li><a href="#dummy-data">10. Dummy Data</a></li>
+                <li><a href="#quickstart">Quick-Start Order</a></li>
+            </ul>
+        </nav>
+
+        <!-- Section 1: Tech Stack -->
+        <section id="tech-stack">
+            <h2>1. Tech stack — the decisions, and why</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Layer</th>
+                        <th>Choice</th>
+                        <th>Why this and not the obvious alternative</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>API / orchestrator</td>
+                        <td><strong>Python 3.11 + FastAPI</strong></td>
+                        <td>Async-native, auto-generates OpenAPI (useful for the frontend and for judges), and it's the only ecosystem where the parsing libraries, the LLM tooling, and the network-automation libraries all live together without a language bridge.</td>
+                    </tr>
+                    <tr>
+                        <td>Deterministic parsing</td>
+                        <td><strong>TextFSM + `ntc-templates`</strong> (via <code>ntc_templates.parse.parse_output</code>)</td>
+                        <td>This is a real, widely-used, actively maintained library (Network to Code) purpose-built for exactly this problem — turning vendor CLI output into structured data via community-maintained templates. Don't hand-roll regex parsing when this exists.</td>
+                    </tr>
+                    <tr>
+                        <td>Live device pulls (optional)</td>
+                        <td><strong>Netmiko</strong> (wraps Paramiko, has built-in <code>use_textfsm=True</code> to call ntc-templates directly)</td>
+                        <td>Named in the brief; battle-tested for SSH automation across 50+ platforms.</td>
+                    </tr>
+                    <tr>
+                        <td>LLM fallback</td>
+                        <td><strong>Anthropic or OpenAI API + `instructor` + Pydantic v2</strong></td>
+                        <td><code>instructor</code> patches the API client so the model is forced to return a validated Pydantic object instead of free text you then have to regex out. This is what makes confidence scoring and source-line citation <em>structural</em> instead of hopeful.</td>
+                    </tr>
+                    <tr>
+                        <td>Data validation / schema</td>
+                        <td><strong>Pydantic v2</strong></td>
+                        <td>Same schema definitions double as the normalized data model, the LLM's structured output contract, and the API's request/response models — one source of truth, not three.</td>
+                    </tr>
+                    <tr>
+                        <td>Database</td>
+                        <td><strong>PostgreSQL 15</strong></td>
+                        <td>Relational because findings, corrections, and few-shot examples are all joined by device/vendor/OS-version — this is not document-shaped data.</td>
+                    </tr>
+                    <tr>
+                        <td>ORM / migrations</td>
+                        <td><strong>SQLModel</strong> (FastAPI author's own library, Pydantic + SQLAlchemy in one) + <strong>Alembic</strong> for migrations</td>
+                        <td>Keeps the Pydantic models and the DB models from drifting into two parallel schemas you maintain by hand.</td>
+                    </tr>
+                    <tr>
+                        <td>Few-shot / correction retrieval</td>
+                        <td><strong>Postgres + `pgvector` extension</strong> (optional upgrade) or a plain <code>(vendor, os_hint)</code> keyed lookup for the hackathon cut</td>
+                        <td>Start with the keyed lookup — it's simpler and demoable. <code>pgvector</code> is the natural v2 if you want similarity-based retrieval across less exact matches.</td>
+                    </tr>
+                    <tr>
+                        <td>Background jobs</td>
+                        <td><strong>FastAPI `BackgroundTasks`</strong> for hackathon scale; <strong>Celery + Redis</strong> if you outgrow it</td>
+                        <td>Bulk upload of tens of files doesn't need a broker. Don't add infrastructure you can't demo the value of.</td>
+                    </tr>
+                    <tr>
+                        <td>Rule packs</td>
+                        <td><strong>YAML files, loaded at startup, hot-reloadable</strong></td>
+                        <td>Rules are data, not code — this is the actual point of the architecture, so don't undermine it by putting rules in Python.</td>
+                    </tr>
+                    <tr>
+                        <td>PDF report</td>
+                        <td><strong>WeasyPrint</strong> (HTML/CSS → PDF)</td>
+                        <td>Faster to make look professional than ReportLab's imperative canvas API under time pressure; you design the report as an HTML template.</td>
+                    </tr>
+                    <tr>
+                        <td>Frontend</td>
+                        <td><strong>React + Vite + TypeScript + Tailwind</strong></td>
+                        <td>Three screens (upload, findings dashboard, training/correction UI) — no need for Next.js routing/SSR complexity.</td>
+                    </tr>
+                    <tr>
+                        <td>Testing</td>
+                        <td><strong>pytest + `ntc-templates'` own test fixtures as parser regression tests</strong></td>
+                        <td>See §10 — this doubles as your dummy data source.</td>
+                    </tr>
+                    <tr>
+                        <td>Containerization</td>
+                        <td><strong>Docker Compose</strong> (api, worker if used, postgres, frontend)</td>
+                        <td>One command to stand the whole thing up for a demo.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Section 2: Architecture -->
+        <section id="architecture">
+            <h2>2. Zoomed-in architecture — at the tool level</h2>
+            <p>This is the same five-stage pipeline from the architecture doc, but with the actual library/service behind every box named.</p>
+            <div class="diagram">
+┌─────────────────────────────────────────────────────────────────────┐
+│  FRONTEND — React + Vite + Tailwind                                  │
+│  Upload screen · Findings dashboard · Training/correction UI          │
+└───────────────────────────────┬───────────────────────────────────────┘
+                                 │ REST (OpenAPI, auto-generated by FastAPI)
+┌───────────────────────────────▼───────────────────────────────────────┐
+│  API LAYER — FastAPI (uvicorn/gunicorn)                                │
+│  /devices  /parse  /findings  /reports  /training                     │
+└───────────────────────────────┬───────────────────────────────────────┘
+                                 │
+                 ┌───────────────┴────────────────┐
+                 ▼                                 ▼
+┌────────────────────────────┐   ┌──────────────────────────────────────┐
+│  VENDOR DETECTION           │   │  ORCHESTRATOR (FastAPI service fn)    │
+│  Regex/keyword fingerprint  │──▶│  routes to deterministic OR LLM lane  │
+│  module (pure Python)       │   └───────────────┬────────────────────┘
+└────────────────────────────┘                   │
+                 ┌─────────────────────┬───────────┴───────────┐
+                 ▼                     ▼                       │
+┌───────────────────────────┐  ┌─────────────────────────────┐ │
+│ DETERMINISTIC PARSER        │  │ LLM FALLBACK LANE            │ │
+│ ntc_templates.parse_output  │  │ Anthropic/OpenAI API          │ │
+│ (TextFSM under the hood)    │  │  + instructor (forces          │ │
+│                              │  │    Pydantic-schema output)     │ │
+│                              │  │  + confidence + source-line     │ │
+│                              │  │    citation, per field          │ │
+└──────────────┬───────────────┘  └───────────────┬────────────────┘ │
+               │                                   │  low confidence?  │
+               │                                   ▼                  │
+               │                    ┌──────────────────────────────┐  │
+               │                    │ TRAINING UI BACKEND            │  │
+               │                    │ Postgres `corrections` table   │  │
+               │                    │ + keyed few-shot retrieval     │  │
+               │                    │ (upgrade path: pgvector)       │  │
+               │                    └───────────────┬───────────────┘  │
+               │                                     │ feeds back into  │
+               │                                     │ next LLM call ───┘
+               ▼                                     ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  NORMALIZED SCHEMA — Pydantic model, persisted via SQLModel/Postgres  │
+└───────────────────────────────┬───────────────────────────────────────┘
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  RULE ENGINE — pure Python evaluator + YAML rule packs (CIS/NIST/STIG)│
+└───────────────────────────────┬───────────────────────────────────────┘
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  REPORTING — WeasyPrint (Jinja2 HTML template → PDF)                  │
+└─────────────────────────────────────────────────────────────────────┘
+            </div>
+        </section>
+
+        <!-- Section 3: Repository Structure -->
+        <section id="repo-structure">
+            <h2>3. Repository structure</h2>
+            <div class="code-block" data-language="text">
+compliance-engine/<br>
+├── backend/<br>
+│   ├── app/<br>
+│   │   ├── main.py                  # FastAPI app entrypoint<br>
+│   │   ├── api/<br>
+│   │   │   ├── devices.py           # upload, list, get device<br>
+│   │   │   ├── parse.py             # trigger parse, get parse status<br>
+│   │   │   ├── findings.py          # get findings for a device<br>
+│   │   │   ├── training.py          # get pending corrections, submit correction<br>
+│   │   │   └── reports.py           # generate/download PDF<br>
+│   │   ├── core/<br>
+│   │   │   ├── config.py            # env/settings (pydantic-settings)<br>
+│   │   │   └── db.py                # SQLModel engine/session<br>
+│   │   ├── models/<br>
+│   │   │   ├── schema.py            # NormalizedDeviceConfig, SecurityBaselineField (Pydantic)<br>
+│   │   │   └── tables.py            # SQLModel table definitions<br>
+│   │   ├── ingestion/<br>
+│   │   │   └── vendor_detect.py     # fingerprinting logic<br>
+│   │   ├── parsers/<br>
+│   │   │   ├── deterministic.py     # ntc-templates wrapper<br>
+│   │   │   └── llm_fallback.py      # instructor + prompt + confidence<br>
+│   │   ├── training/<br>
+│   │   │   └── corrections.py       # correction storage + few-shot retrieval<br>
+│   │   ├── rules/<br>
+│   │   │   ├── engine.py            # evaluator<br>
+│   │   │   └── packs/<br>
+│   │   │       ├── cis_ios.yaml<br>
+│   │   │       ├── nist_800_53.yaml<br>
+│   │   │       └── stig_generic.yaml<br>
+│   │   └── reporting/<br>
+│   │       ├── templates/report.html<br>
+│   │       └── generate.py<br>
+│   ├── tests/<br>
+│   │   └── fixtures/                # dummy data, see §10 — mirrors ntc-templates layout<br>
+│   ├── alembic/<br>
+│   ├── pyproject.toml<br>
+│   └── Dockerfile<br>
+├── frontend/<br>
+│   ├── src/<br>
+│   │   ├── pages/Upload.tsx<br>
+│   │   ├── pages/Findings.tsx<br>
+│   │   ├── pages/Training.tsx<br>
+│   │   └── components/<br>
+│   └── Dockerfile<br>
+└── docker-compose.yml
+            </div>
+        </section>
+
+        <!-- Section 4: Core Data Models -->
+        <section id="data-models">
+            <h2>4. Core data models (Pydantic v2)</h2>
+            <p>These live in <code>models/schema.py</code> and are reused as: the LLM's forced structured-output contract, the normalized storage shape, and the API response shape.</p>
+            <pre data-language="python">from pydantic import BaseModel, Field
+from typing import Literal
+from datetime import datetime
+
+class SourceEvidence(BaseModel):
+    raw_line: str                       # the exact original config line
+    line_number: int | None = None
+
+class SecurityBaselineField(BaseModel):
+    control_area: str                   # e.g. "ssh_version", "telnet_enabled", "password_min_length"
+    value: str                          # the normalized value, e.g. "2", "false", "8"
+    evidence: SourceEvidence
+    confidence: float = Field(ge=0.0, le=1.0)   # 1.0 for deterministic-lane fields
+    source_lane: Literal["deterministic", "llm"]
+
+class NormalizedDeviceConfig(BaseModel):
+    device_id: str
+    vendor: str
+    os_hint: str | None = None
+    fields: list[SecurityBaselineField]
+    parsed_at: datetime
+
+class ComplianceRule(BaseModel):
+    control_id: str                     # e.g. "CIS-1.1.4"
+    framework: Literal["CIS", "NIST_800_53", "STIG", "ISO_27001"]
+    control_area: str                   # must match a SecurityBaselineField.control_area
+    expected_value: str
+    severity: Literal["low", "medium", "high", "critical"]
+    remediation_template: str           # e.g. "ip ssh version 2" — vendor-specific fill-in
+
+class Finding(BaseModel):
+    device_id: str
+    control_id: str
+    status: Literal["pass", "fail", "needs_review"]
+    observed_value: str | None
+    severity: str
+    remediation_cli: str | None
+    evidence: SourceEvidence | None
+
+class CorrectionExample(BaseModel):
+    vendor: str
+    os_hint: str | None
+    raw_line: str
+    mapped_control_area: str
+    mapped_value: str
+    corrected_by: str
+    created_at: datetime</pre>
+        </section>
+
+        <!-- Section 5: Database Schema -->
+        <section id="db-schema">
+            <h2>5. Database schema (Postgres DDL, via SQLModel/Alembic)</h2>
+            <pre data-language="sql">CREATE TABLE devices (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    filename TEXT NOT NULL,
+    vendor TEXT,
+    os_hint TEXT,
+    detection_confidence FLOAT,
+    raw_config TEXT NOT NULL,
+    uploaded_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE normalized_fields (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_id UUID REFERENCES devices(id) ON DELETE CASCADE,
+    control_area TEXT NOT NULL,
+    value TEXT NOT NULL,
+    raw_line TEXT NOT NULL,
+    confidence FLOAT NOT NULL,
+    source_lane TEXT NOT NULL CHECK (source_lane IN ('deterministic','llm'))
+);
+
+CREATE TABLE compliance_rules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    control_id TEXT NOT NULL,
+    framework TEXT NOT NULL,
+    control_area TEXT NOT NULL,
+    expected_value TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    remediation_template TEXT
+);
+
+CREATE TABLE findings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_id UUID REFERENCES devices(id) ON DELETE CASCADE,
+    control_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pass','fail','needs_review')),
+    observed_value TEXT,
+    severity TEXT,
+    remediation_cli TEXT,
+    raw_line TEXT
+);
+
+CREATE TABLE corrections (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vendor TEXT NOT NULL,
+    os_hint TEXT,
+    raw_line TEXT NOT NULL,
+    mapped_control_area TEXT NOT NULL,
+    mapped_value TEXT NOT NULL,
+    corrected_by TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX idx_corrections_vendor_os ON corrections (vendor, os_hint);</pre>
+        </section>
+
+        <!-- Section 6: API Contract -->
+        <section id="api-contract">
+            <h2>6. API contract</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Method</th>
+                        <th>Endpoint</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>POST</code></td>
+                        <td><code>/devices/upload</code></td>
+                        <td>Upload one or more config files. Returns <code>device_id</code>(s).</td>
+                    </tr>
+                    <tr>
+                        <td><code>GET</code></td>
+                        <td><code>/devices/{id}</code></td>
+                        <td>Device metadata, detected vendor, detection confidence.</td>
+                    </tr>
+                    <tr>
+                        <td><code>POST</code></td>
+                        <td><code>/devices/{id}/parse</code></td>
+                        <td>Triggers vendor detection → deterministic or LLM lane → normalization.</td>
+                    </tr>
+                    <tr>
+                        <td><code>GET</code></td>
+                        <td><code>/devices/{id}/fields</code></td>
+                        <td>Returns normalized fields with confidence + evidence.</td>
+                    </tr>
+                    <tr>
+                        <td><code>POST</code></td>
+                        <td><code>/devices/{id}/evaluate?framework=CIS</code></td>
+                        <td>Runs the rule engine, writes <code>findings</code>.</td>
+                    </tr>
+                    <tr>
+                        <td><code>GET</code></td>
+                        <td><code>/devices/{id}/findings</code></td>
+                        <td>Returns findings for the dashboard.</td>
+                    </tr>
+                    <tr>
+                        <td><code>GET</code></td>
+                        <td><code>/devices/{id}/report.pdf</code></td>
+                        <td>Generates and streams the PDF report.</td>
+                    </tr>
+                    <tr>
+                        <td><code>GET</code></td>
+                        <td><code>/training/pending</code></td>
+                        <td>Lists low-confidence fields awaiting human review, across all devices.</td>
+                    </tr>
+                    <tr>
+                        <td><code>POST</code></td>
+                        <td><code>/training/corrections</code></td>
+                        <td>Submits a human correction; writes to <code>corrections</code>, triggers re-normalization of affected fields.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Section 7: Module-by-Module Design -->
+        <section id="module-design">
+            <h2>7. Module-by-module design</h2>
+            
+            <h3>7.1 Vendor detection (<code>ingestion/vendor_detect.py</code>)</h3>
+            <p>Pure Python, no AI — this needs to be fast and cheap since it runs on every upload before any real parsing happens.</p>
+            <pre data-language="python">FINGERPRINTS = [
+    ("cisco_ios", r"^Building configuration|^version \d+\.\d+\nservice"),
+    ("juniper_junos", r"^## Last commit:|^system \{"),
+    ("panos", r"&lt;config version=|^set (deviceconfig|network|rulebase)"),
+    ("fortios", r"^config (system|firewall) "),
+    ("sonic", r'"DEVICE_METADATA"\s*:\s*\{'),          # config_db.json signature
+    ("mikrotik_routeros", r"^/interface|^/ip address\nadd"),
+]
+# score each pattern, return (vendor, os_hint, confidence)
+# confidence >= TEMPLATE_THRESHOLD and a matching ntc-templates index entry
+# → deterministic lane. Otherwise → LLM fallback lane.</pre>
+
+            <h3>7.2 Deterministic parser (<code>parsers/deterministic.py</code>)</h3>
+            <pre data-language="python">from ntc_templates.parse import parse_output
+
+def parse_deterministic(vendor_platform: str, command: str, raw_text: str):
+    # vendor_platform must match ntc-templates' platform naming,
+    # e.g. "cisco_ios", "juniper_junos"
+    return parse_output(platform=vendor_platform, command=command, data=raw_text)</pre>
+            <p>Every value coming out of this path gets <code>confidence = 1.0</code> and <code>source_lane = "deterministic"</code> — there's no ambiguity to score.</p>
+
+            <h3>7.3 LLM fallback lane (<code>parsers/llm_fallback.py</code>)</h3>
+            <pre data-language="python">import instructor
+from anthropic import Anthropic
+from app.models.schema import NormalizedDeviceConfig
+
+client = instructor.from_anthropic(Anthropic())
+
+def parse_with_llm(vendor: str, raw_config: str) -> NormalizedDeviceConfig:
+    return client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=4000,
+        response_model=NormalizedDeviceConfig,
+        messages=[{
+            "role": "user",
+            "content": (
+                f"Vendor: {vendor}\n"
+                "Extract every security-relevant setting from this config into the schema. "
+                "For every field, quote the EXACT source line you derived it from, and set "
+                "confidence honestly — if you are guessing, say so with a low number.\n\n"
+                f"{raw_config}"
+            ),
+        }],
+    )</pre>
+            <p><strong>Key design point:</strong> <code>response_model</code> makes the schema itself the contract — the model literally cannot return something that doesn't have <code>evidence.raw_line</code> and <code>confidence</code> populated. This is what turns "trust me" into something checkable.</p>
+            <p>A field routes to the Training UI when <code>confidence &lt; CONFIDENCE_THRESHOLD</code> (start at <code>0.75</code>, tune from real usage).</p>
+
+            <h3>7.4 Training UI backend (<code>training/corrections.py</code>)</h3>
+            <pre data-language="python">def get_few_shot_examples(vendor: str, os_hint: str | None, limit: int = 5):
+    # simple keyed lookup for the hackathon cut:
+    return db.exec(
+        select(Correction)
+        .where(Correction.vendor == vendor, Correction.os_hint == os_hint)
+        .order_by(Correction.created_at.desc())
+        .limit(limit)
+    ).all()</pre>
+            <p>These examples get formatted into the LLM prompt as few-shot context on the <em>next</em> call for that vendor — this is the entire "training loop," and it's a prompt-construction problem, not a model-retraining problem.</p>
+
+            <h3>7.5 Rule engine (<code>rules/engine.py</code>)</h3>
+            <pre data-language="yaml"># rules/packs/cis_ios.yaml
+- control_id: CIS-1.1.4
+  framework: CIS
+  control_area: ssh_version
+  expected_value: "2"
+  severity: high
+  remediation_template: "ip ssh version 2"
+- control_id: CIS-1.2.1
+  framework: CIS
+  control_area: telnet_enabled
+  expected_value: "false"
+  severity: critical
+  remediation_template: "no service telnet"</pre>
+            <pre data-language="python">def evaluate(fields: list[SecurityBaselineField], rules: list[ComplianceRule]) -> list[Finding]:
+    field_map = {f.control_area: f for f in fields}
+    findings = []
+    for rule in rules:
+        field = field_map.get(rule.control_area)
+        if field is None:
+            findings.append(Finding(status="needs_review", ...))  # never silently skip
+        elif field.confidence &lt; CONFIDENCE_THRESHOLD:
+            findings.append(Finding(status="needs_review", ...))
+        else:
+            status = "pass" if field.value == rule.expected_value else "fail"
+            findings.append(Finding(status=status, remediation_cli=rule.remediation_template, ...))
+    return findings</pre>
+
+            <h3>7.6 Reporting (<code>reporting/generate.py</code>)</h3>
+            <p>Jinja2 renders <code>templates/report.html</code> with the device metadata + findings list, then <code>weasyprint.HTML(string=rendered).write_pdf(...)<code>.</p>
+        </section>
+
+        <!-- Section 8: Sequence Flow -->
+        <section id="sequence-flow">
+            <h2>8. Sequence flow per lane</h2>
+            
+            <h3>Deterministic (Cisco/Juniper):</h3>
+            <p><code>POST /devices/upload</code> → vendor_detect fingerprints as <code>cisco_ios</code> with high confidence → <code>parse_deterministic()</code> via ntc-templates → fields written with <code>confidence=1.0</code> → <code>POST /devices/{id}/evaluate</code> runs rule engine → <code>GET /report.pdf</code>.</p>
+
+            <h3>LLM fallback (Palo Alto, no template):</h3>
+            <p>Upload → vendor_detect recognizes vendor name but has no ntc-templates match → <code>parse_with_llm()</code> called with no few-shot examples (first time) → fields returned with per-field confidence → all fields ≥ 0.75 → straight to rule engine → report. No human touches this run.</p>
+
+            <h3>LLM fallback + training (unknown SONiC device):</h3>
+            <p>Upload → vendor_detect returns low confidence, <code>os_hint=None</code> → <code>parse_with_llm()</code> called → several fields return confidence &lt; 0.75 → those fields appear in <code>GET /training/pending</code> → human calls <code>POST /training/corrections</code> for each → correction stored → <strong>next</strong> SONiC upload calls <code>get_few_shot_examples()</code> first and injects them into the prompt → confidence on those same fields should now clear the threshold automatically.</p>
+        </section>
+
+        <!-- Section 9: Deployment -->
+        <section id="deployment">
+            <h2>9. Deployment (docker-compose.yml, shape only)</h2>
+            <pre data-language="yaml">services:
+  api:
+    build: ./backend
+    env_file: .env
+    depends_on: [db]
+    ports: ["8000:8000"]
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: compliance
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+  frontend:
+    build: ./frontend
+    ports: ["5173:5173"]
+volumes:
+  pgdata:</pre>
+        </section>
+
+        <!-- Section 10: Dummy Data -->
+        <section id="dummy-data">
+            <h2>10. Dummy data — real sources, 2–3 examples per lane</h2>
+            <p>Rather than hand-writing fake configs from scratch, pull from the actual repositories these vendors/communities publish — the data is realistic, free, and in some cases <em>is literally what the parsing library's own tests run against.</em></p>
+
+            <h3>Lane 1 — Purely deterministic (Cisco / Juniper, has an ntc-templates match)</h3>
+            <p><strong>Best source:</strong> the <code>ntc-templates</code> repo's own test fixtures — real, anonymized <code>show run</code> / <code>show version</code> outputs used to test the exact library you're integrating.</p>
+            <p>🔗 <a href="https://github.com/networktocode/ntc-templates/tree/master/tests">https://github.com/networktocode/ntc-templates/tree/master/tests</a> — browse <code>tests/cisco_ios/show_run/</code> and <code>tests/juniper_junos/</code></p>
+
+            <h4>Ready-to-use example 1 — Cisco IOS (minimal <code>show run</code> fragment):</h4>
+            <pre data-language="text">Building configuration...
+
+hostname EDGE-SW01
+!
+service password-encryption
+!
+line vty 0 4
+ transport input ssh
+!
+ip ssh version 2
+no service telnet
+!
+username admin privilege 15 secret 5 $1$abc$XyZ...</pre>
+
+            <h4>Ready-to-use example 2 — Juniper Junos (set-style):</h4>
+            <pre data-language="text">system {
+    host-name CORE-FW01;
+    services {
+        ssh {
+            protocol-version v2;
+        }
+    }
+}
+system {
+    login {
+        retry-options {
+            tries-before-disconnect 3;
+        }
+    }
+}</pre>
+
+            <h3>Lane 2 — LLM fallback (known vendor, no deterministic template)</h3>
+            <p><strong>Best source:</strong> <code>PaloAltoNetworks/iron-skillet</code> — Palo Alto's own official GitHub repo of ready-to-load NGFW configs in both XML and <code>set</code>-command format.</p>
+            <p>🔗 <a href="https://github.com/PaloAltoNetworks/iron-skillet">https://github.com/PaloAltoNetworks/iron-skillet</a> → <code>loadable_configs/</code></p>
+
+            <h4>Ready-to-use example 1 — Palo Alto (<code>set</code> format fragment):</h4>
+            <pre data-language="text">set deviceconfig system timezone UTC
+set deviceconfig system update-server updates.paloaltonetworks.com
+set network interface ethernet ethernet1/1 layer3 ip 10.0.0.1/24
+set rulebase security rules allow-outbound source any destination any application any action allow log-end yes</pre>
+
+            <h4>Ready-to-use example 2 — FortiOS (<code>config</code> block fragment):</h4>
+            <pre data-language="text">config system global
+    set admin-ssh-v1 disable
+    set admintimeout 15
+end
+config system interface
+    edit "port1"
+        set ip 10.10.10.1 255.255.255.0
+        set allowaccess ping https ssh
+    next
+end</pre>
+            <p>FortiOS CLI reference examples: <a href="https://docs.fortinet.com">https://docs.fortinet.com</a> (search "FortiOS CLI reference config system global")</p>
+
+            <h3>Lane 3 — Human review + LLM fallback (genuinely unrecognized format)</h3>
+            <p><strong>Best source:</strong> SONiC's own <code>config_db.json</code> schema documentation and sample configs, straight from the <code>sonic-net/sonic-buildimage</code> repo — a format almost nothing has a hand-built parser for.</p>
+            <p>🔗 <a href="https://github.com/sonic-net/sonic-buildimage">https://github.com/sonic-net/sonic-buildimage</a> — see <code>src/sonic-yang-models/doc/Configuration.md</code> and <code>src/sonic-config-engine/config_samples.py</code> (ships <code>t1</code>/<code>l2</code>/<code>empty</code> preset sample configs)</p>
+            <p>🔗 <a href="https://github.com/sonic-net/SONiC/wiki/Configuration">https://github.com/sonic-net/SONiC/wiki/Configuration</a></p>
+
+            <h4>Ready-to-use example 1 — SONiC <code>config_db.json</code> fragment:</h4>
+            <pre data-language="json">{
+    "DEVICE_METADATA": {
+        "localhost": {
+            "hostname": "sonic-tor01",
+            "hwsku": "Accton-AS7326-56X"
+        }
+    },
+    "BGP_NEIGHBOR": {
+        "10.0.0.1": {
+            "admin_status": "up",
+            "asn": "65100",
+            "name": "T1-01"
+        }
+    }
+}</pre>
+
+            <h4>Ready-to-use example 2 — MikroTik RouterOS export (<code>.rsc</code>), an equally good "never seen it" case:</h4>
+            <p>🔗 official export docs: <a href="https://help.mikrotik.com/docs/spaces/ROS/pages/328155/Configuration+Management">https://help.mikrotik.com/docs/spaces/ROS/pages/328155/Configuration+Management</a></p>
+            <pre data-language="text">/interface bridge
+add name=bridge1
+/ip address
+add address=10.1.0.1/24 interface=bridge1
+/ip service
+set telnet disabled=yes
+set ssh port=22</pre>
+
+            <p><strong>Why these two work well as lane-3 examples:</strong> neither SONiC's JSON key-value schema nor MikroTik's <code>/path</code> + <code>add</code>/<code>set</code> syntax resembles any Cisco/Juniper template structure at all — a deterministic parser genuinely has nothing to match against, so these are honest tests of the full fallback-plus-training loop, not just a relabeled lane-2 case.</p>
+        </section>
+
+        <!-- Quick-Start Order -->
+        <section id="quickstart">
+            <h2>Quick-start order</h2>
+            <ol>
+                <li>Stand up Postgres + FastAPI skeleton, wire the <code>devices</code> upload endpoint.</li>
+                <li>Drop lane-1 fixtures in, get <code>ntc_templates.parse_output</code> returning real structured data.</li>
+                <li>Hand-write 3–4 <code>compliance_rules</code> YAML entries and get pass/fail working end to end on lane 1 only — this proves the whole spine before AI enters the picture.</li>
+                <li>Add the LLM fallback lane with <code>instructor</code> + the Pydantic schema, test against lane-2 fixtures.</li>
+                <li>Add the confidence threshold gate and the <code>corrections</code> table, test against lane-3 fixtures.</li>
+                <li>Wire the PDF report last — it's the least risky part and easiest to leave for the end.</li>
+            </ol>
+        </section>
+    </div>
+
+    <button class="scroll-top" id="scrollTopBtn" title="Go to top">↑</button>
+
+    <script>
+        // Smooth scrolling for navigation
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+
+        // Scroll to top button
+        const scrollTopBtn = document.getElementById('scrollTopBtn');
+
+        window.addEventListener('scroll', () => {
+            if (window.pageYOffset > 300) {
+                scrollTopBtn.style.display = 'block';
+            } else {
+                scrollTopBtn.style.display = 'none';
+            }
+        });
+
+        scrollTopBtn.addEventListener('click', () => {
+            window.scrollTo({
+                top: 0,
+                behavior: 'smooth'
+            });
+        });
+
+        // Highlight code blocks when they come into view
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, { threshold: 0.1 });
+
+        document.querySelectorAll('pre, .diagram, .code-block').forEach(el => {
+            observer.observe(el);
+        });
+    </script>
+</body>
+</html>

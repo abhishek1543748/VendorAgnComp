@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Low-Level Design v2 — Vendor-Agnostic Compliance Engine Backend</title>
+<style>
+  :root {
+    --ink: #1a1d23;
+    --muted: #5b6472;
+    --accent: #b45309;
+    --accent-soft: #fef3e2;
+    --line: #e3e6ea;
+    --code-bg: #1e2228;
+    --code-ink: #e6e9ef;
+    --table-head: #f3f1ec;
+    --bg: #fbfaf8;
+    --changelog-bg: #fff8ec;
+    --changelog-border: #e0a94a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, "Segoe UI", Georgia, "Iowan Old Style", serif;
+    line-height: 1.65;
+  }
+  .page {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 56px 32px 100px;
+  }
+  h1 {
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0 0 8px;
+    border-bottom: 3px solid var(--ink);
+    padding-bottom: 16px;
+  }
+  h2 {
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 1.35rem;
+    font-weight: 700;
+    margin: 2.6em 0 0.8em;
+    padding-top: 0.4em;
+    border-top: 1px solid var(--line);
+    color: var(--ink);
+  }
+  h3 {
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin: 1.8em 0 0.6em;
+    color: #33383f;
+  }
+  p { margin: 0.9em 0; font-size: 0.98rem; }
+  hr { border: none; border-top: 1px solid var(--line); margin: 2.4em 0; }
+  strong { color: var(--ink); font-weight: 700; }
+  code {
+    font-family: "SF Mono", "JetBrains Mono", Consolas, monospace;
+    font-size: 0.85em;
+    background: var(--accent-soft);
+    color: #8a4a06;
+    padding: 0.12em 0.4em;
+    border-radius: 4px;
+  }
+  pre {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    padding: 18px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    margin: 1.2em 0;
+  }
+  pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+    font-size: 1em;
+  }
+  blockquote {
+    background: var(--changelog-bg);
+    border-left: 4px solid var(--changelog-border);
+    margin: 1.4em 0;
+    padding: 0.9em 1.3em;
+    border-radius: 0 6px 6px 0;
+  }
+  blockquote p { margin: 0.5em 0; font-size: 0.94rem; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2em 0;
+    font-size: 0.86rem;
+  }
+  th, td {
+    border: 1px solid var(--line);
+    padding: 10px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: var(--table-head);
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-weight: 700;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+  }
+  tr:nth-child(even) td { background: #fdfcfa; }
+  ul, ol { padding-left: 1.4em; }
+  li { margin: 0.35em 0; font-size: 0.98rem; }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-soft); }
+  a:hover { border-bottom-color: var(--accent); }
+  .badge {
+    display: inline-block;
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: var(--ink);
+    color: #fff;
+    padding: 4px 10px;
+    border-radius: 999px;
+    margin-bottom: 18px;
+  }
+  @media print {
+    body { background: #fff; }
+    pre { white-space: pre-wrap; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+<span class="badge">Revision 2 — corrected &amp; reviewed</span>
+<h1 id="low-level-design-v2-vendor-agnostic-compliance-engine-backend">Low-Level Design v2 — Vendor-Agnostic Compliance Engine Backend</h1>
+<p><strong>Scope:</strong> everything needed to actually start writing code — tech stack decisions with reasoning, a tool-level architecture, data models, API contract, database schema, module-by-module design for all three lanes, deployment layout, and ready-to-use dummy data sources for each lane.</p>
+<blockquote>
+<p><strong>Changelog vs v1</strong> — this revision closes 8 gaps found in review before implementation started:
+1. Added device identity fields (hostname, serial number, model, firmware version) — explicitly required by the PS's PDF report spec, missing from v1's <code>devices</code> table.
+2. Deterministic lane now has an explicit <code>command</code> assumption per platform, and <strong>falls back to the LLM lane automatically</strong> if <code>parse_output</code> fails or returns empty, instead of deciding the lane purely from the fingerprint.
+3. Fingerprint regexes now use <code>re.MULTILINE</code> and multi-keyword scoring instead of a single anchored OR-pattern that would under-match.
+4. LLM calls are now async (<code>AsyncAnthropic</code>) so they don't block the FastAPI event loop; bulk uploads parse concurrently via <code>asyncio.gather</code>.
+5. Corrected the example model string to a real current model (<code>claude-opus-5</code>), not a placeholder.
+6. Added a <strong>secret-redaction pass</strong> before any config text leaves the process for the LLM lane.
+7. Correction submission now re-runs the rule engine on affected devices, not just re-normalization — so the findings dashboard actually updates.
+8. Added <code>GET /devices</code>, <code>GET /frameworks</code>, explicit CORS config, Jinja2 autoescape, and WeasyPrint's system dependencies in the Dockerfile.</p>
+</blockquote>
+<hr />
+<h2 id="1-tech-stack-the-decisions-and-why">1. Tech stack — the decisions, and why</h2>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Choice</th>
+<th>Why this and not the obvious alternative</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>API / orchestrator</td>
+<td><strong>Python 3.11 + FastAPI</strong></td>
+<td>Async-native, auto-generates OpenAPI (useful for the frontend and for judges), and it's the only ecosystem where the parsing libraries, the LLM tooling, and the network-automation libraries all live together without a language bridge.</td>
+</tr>
+<tr>
+<td>Deterministic parsing</td>
+<td><strong>TextFSM + <code>ntc-templates</code></strong> (via <code>ntc_templates.parse.parse_output</code>)</td>
+<td>Real, widely-used, actively maintained library (Network to Code) purpose-built for turning vendor CLI output into structured data. Don't hand-roll regex parsing when this exists. <strong>Note:</strong> templates are keyed by exact <code>(platform, command)</code> pairs, and the raw text passed in must contain <em>only</em> the command's output, not the command itself — this drives module 7.1/7.2 below.</td>
+</tr>
+<tr>
+<td>Live device pulls (optional)</td>
+<td><strong>Netmiko</strong></td>
+<td>Named in the brief; useful only if demoing against real/virtual gear. Not required for file-upload-driven scoring — treat as stretch, not spine.</td>
+</tr>
+<tr>
+<td>LLM fallback</td>
+<td><strong>Anthropic API (async) + <code>instructor</code> + Pydantic v2</strong></td>
+<td><code>instructor</code> forces the model to return a validated Pydantic object instead of free text you regex out. This is what makes confidence scoring and source-line citation <em>structural</em> instead of hopeful. Use the <strong>async</strong> client (<code>AsyncAnthropic</code>) so LLM calls don't block FastAPI's event loop.</td>
+</tr>
+<tr>
+<td>Data validation / schema</td>
+<td><strong>Pydantic v2</strong></td>
+<td>Same schema definitions double as the normalized data model, the LLM's structured output contract, and the API's request/response models — one source of truth.</td>
+</tr>
+<tr>
+<td>Database</td>
+<td><strong>PostgreSQL 15</strong></td>
+<td>Relational because findings, corrections, and few-shot examples are all joined by device/vendor/OS-version — this is not document-shaped data.</td>
+</tr>
+<tr>
+<td>ORM / migrations</td>
+<td><strong>SQLModel + Alembic</strong></td>
+<td>Keeps Pydantic and DB models from drifting into two parallel schemas. Caveat: SQLModel's Alembic autogenerate can miss some changes — review autogenerated migrations by eye, don't trust them blindly.</td>
+</tr>
+<tr>
+<td>Few-shot / correction retrieval</td>
+<td><strong>Postgres, plain <code>(vendor, os_hint)</code> keyed lookup</strong> for the hackathon cut; <code>pgvector</code> as v2 upgrade</td>
+<td>Start with the keyed lookup — simpler and demoable.</td>
+</tr>
+<tr>
+<td>Background jobs</td>
+<td><strong>FastAPI <code>BackgroundTasks</code></strong> + <code>asyncio.gather</code> for concurrency within a batch; <strong>Celery + Redis</strong> only if you outgrow it</td>
+<td>Bulk upload of tens of files doesn't need a broker, but <em>does</em> need the LLM calls to run concurrently rather than serially, or a 20-file bulk upload will visibly crawl in a live demo.</td>
+</tr>
+<tr>
+<td>Rule packs</td>
+<td><strong>YAML files, loaded at startup, hot-reloadable</strong></td>
+<td>Rules are data, not code — this is the actual point of the architecture.</td>
+</tr>
+<tr>
+<td>PDF report</td>
+<td><strong>WeasyPrint</strong> (HTML/CSS → PDF), Jinja2 with <strong>autoescape on</strong></td>
+<td>Faster to make look professional than ReportLab's canvas API. Requires system packages (Pango/Cairo/GDK-Pixbuf) in the Docker image — see §9.</td>
+</tr>
+<tr>
+<td>Frontend</td>
+<td><strong>React + Vite + TypeScript + Tailwind</strong></td>
+<td>Three screens (upload, findings dashboard, training/correction UI) — no need for Next.js routing/SSR complexity.</td>
+</tr>
+<tr>
+<td>Testing</td>
+<td><strong>pytest + <code>ntc-templates</code>' own test fixtures as parser regression tests</strong></td>
+<td>Doubles as your dummy data source — see §10.</td>
+</tr>
+<tr>
+<td>Containerization</td>
+<td><strong>Docker Compose</strong> (api, postgres, frontend)</td>
+<td>One command to stand the whole thing up for a demo.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="2-architecture-at-the-tool-level">2. Architecture — at the tool level</h2>
+<div class="codehilite"><pre><span></span><code><span class="n">┌─────────────────────────────────────────────────────────────────────┐</span>
+<span class="n">│</span><span class="w">  </span><span class="n">FRONTEND</span><span class="w"> </span><span class="n">—</span><span class="w"> </span><span class="n">React</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">Vite</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">Tailwind</span><span class="w">                                  </span><span class="n">│</span>
+<span class="n">│</span><span class="w">  </span><span class="n">Upload</span><span class="w"> </span><span class="n">screen</span><span class="w"> </span><span class="n">·</span><span class="w"> </span><span class="n">Findings</span><span class="w"> </span><span class="n">dashboard</span><span class="w"> </span><span class="n">·</span><span class="w"> </span><span class="n">Training</span><span class="o">/</span><span class="n">correction</span><span class="w"> </span><span class="n">UI</span><span class="w">          </span><span class="n">│</span>
+<span class="n">└───────────────────────────────┬───────────────────────────────────────┘</span>
+<span class="w">                                 </span><span class="n">│</span><span class="w"> </span><span class="n">REST</span><span class="w"> </span><span class="p">(</span><span class="n">OpenAPI</span><span class="p">,</span><span class="w"> </span><span class="k">auto</span><span class="o">-</span><span class="k">generated</span><span class="p">),</span><span class="w"> </span><span class="n">CORS</span><span class="w"> </span><span class="n">enabled</span>
+<span class="n">┌───────────────────────────────▼───────────────────────────────────────┐</span>
+<span class="n">│</span><span class="w">  </span><span class="n">API</span><span class="w"> </span><span class="n">LAYER</span><span class="w"> </span><span class="n">—</span><span class="w"> </span><span class="n">FastAPI</span><span class="w"> </span><span class="p">(</span><span class="n">uvicorn</span><span class="o">/</span><span class="n">gunicorn</span><span class="p">)</span><span class="w">                                </span><span class="n">│</span>
+<span class="n">│</span><span class="w">  </span><span class="o">/</span><span class="n">devices</span><span class="w">  </span><span class="o">/</span><span class="n">frameworks</span><span class="w">  </span><span class="o">/</span><span class="n">parse</span><span class="w">  </span><span class="o">/</span><span class="n">findings</span><span class="w">  </span><span class="o">/</span><span class="n">reports</span><span class="w">  </span><span class="o">/</span><span class="n">training</span><span class="w">        </span><span class="n">│</span>
+<span class="n">└───────────────────────────────┬───────────────────────────────────────┘</span>
+<span class="w">                                 </span><span class="n">│</span>
+<span class="w">                 </span><span class="n">┌───────────────┴────────────────┐</span>
+<span class="w">                 </span><span class="n">▼</span><span class="w">                                 </span><span class="n">▼</span>
+<span class="n">┌────────────────────────────┐</span><span class="w">   </span><span class="n">┌──────────────────────────────────────┐</span>
+<span class="n">│</span><span class="w">  </span><span class="n">VENDOR</span><span class="w"> </span><span class="n">DETECTION</span><span class="w">           </span><span class="n">│</span><span class="w">   </span><span class="n">│</span><span class="w">  </span><span class="n">ORCHESTRATOR</span><span class="w"> </span><span class="p">(</span><span class="n">FastAPI</span><span class="w"> </span><span class="n">service</span><span class="w"> </span><span class="n">fn</span><span class="p">)</span><span class="w">    </span><span class="n">│</span>
+<span class="n">│</span><span class="w">  </span><span class="n">Multi</span><span class="o">-</span><span class="n">keyword</span><span class="w"> </span><span class="n">fingerprint</span><span class="w">  </span><span class="n">│──▶│</span><span class="w">  </span><span class="n">attempts</span><span class="w"> </span><span class="k">deterministic</span><span class="w"> </span><span class="k">first</span><span class="p">,</span><span class="w">        </span><span class="n">│</span>
+<span class="n">│</span><span class="w">  </span><span class="p">(</span><span class="n">re</span><span class="p">.</span><span class="n">MULTILINE</span><span class="p">,</span><span class="w"> </span><span class="n">scored</span><span class="p">)</span><span class="w">     </span><span class="n">│</span><span class="w">   </span><span class="n">│</span><span class="w">  </span><span class="n">falls</span><span class="w"> </span><span class="n">back</span><span class="w"> </span><span class="k">to</span><span class="w"> </span><span class="n">LLM</span><span class="w"> </span><span class="k">on</span><span class="w"> </span><span class="n">failure</span><span class="o">/</span><span class="k">empty</span><span class="w">   </span><span class="n">│</span>
+<span class="n">└────────────────────────────┘</span><span class="w">   </span><span class="n">└───────────────┬────────────────────┘</span>
+<span class="w">                 </span><span class="n">┌─────────────────────┬───────────┴───────────┐</span>
+<span class="w">                 </span><span class="n">▼</span><span class="w">                     </span><span class="n">▼</span><span class="w">                       </span><span class="n">│</span>
+<span class="n">┌───────────────────────────┐</span><span class="w">  </span><span class="n">┌─────────────────────────────┐</span><span class="w"> </span><span class="n">│</span>
+<span class="n">│</span><span class="w"> </span><span class="k">DETERMINISTIC</span><span class="w"> </span><span class="k">PARSER</span><span class="w">        </span><span class="n">│</span><span class="w">  </span><span class="n">│</span><span class="w"> </span><span class="n">SECRET</span><span class="w"> </span><span class="n">REDACTION</span><span class="w">             </span><span class="n">│</span><span class="w"> </span><span class="n">│</span>
+<span class="n">│</span><span class="w"> </span><span class="n">ntc_templates</span><span class="p">.</span><span class="n">parse_output</span><span class="w">  </span><span class="n">│</span><span class="w">  </span><span class="n">│</span><span class="w"> </span><span class="n">strip</span><span class="w"> </span><span class="n">hashes</span><span class="o">/</span><span class="n">PSKs</span><span class="o">/</span><span class="n">community</span><span class="w">   </span><span class="n">│</span><span class="w"> </span><span class="n">│</span>
+<span class="n">│</span><span class="w"> </span><span class="p">(</span><span class="n">TextFSM</span><span class="p">),</span><span class="w"> </span><span class="n">platform</span><span class="o">+</span><span class="n">command</span><span class="w"> </span><span class="n">│</span><span class="w">  </span><span class="n">│</span><span class="w"> </span><span class="n">strings</span><span class="w"> </span><span class="k">before</span><span class="w"> </span><span class="k">any</span><span class="w"> </span><span class="n">LLM</span><span class="w"> </span><span class="k">call</span><span class="w">   </span><span class="n">│</span><span class="w"> </span><span class="n">│</span>
+<span class="n">│</span><span class="w"> </span><span class="n">try</span><span class="o">/</span><span class="k">except</span><span class="w"> </span><span class="n">→</span><span class="w"> </span><span class="n">fallback</span><span class="w">       </span><span class="n">│</span><span class="w">  </span><span class="n">└───────────────┬───────────────┘</span><span class="w"> </span><span class="n">│</span>
+<span class="n">└──────────────┬───────────────┘</span><span class="w">                  </span><span class="n">▼</span><span class="w">                  </span><span class="n">│</span>
+<span class="w">               </span><span class="n">│</span><span class="w">                   </span><span class="n">┌─────────────────────────────┐</span><span class="w">  </span><span class="n">│</span>
+<span class="w">               </span><span class="n">│</span><span class="w">                   </span><span class="n">│</span><span class="w"> </span><span class="n">LLM</span><span class="w"> </span><span class="n">FALLBACK</span><span class="w"> </span><span class="n">LANE</span><span class="w"> </span><span class="p">(</span><span class="n">async</span><span class="p">)</span><span class="w">     </span><span class="n">│</span><span class="w">  </span><span class="n">│</span>
+<span class="w">               </span><span class="n">│</span><span class="w">                   </span><span class="n">│</span><span class="w"> </span><span class="n">AsyncAnthropic</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">instructor</span><span class="w">    </span><span class="n">│</span><span class="w">  </span><span class="n">│</span>
+<span class="w">               </span><span class="n">│</span><span class="w">                   </span><span class="n">│</span><span class="w">  </span><span class="o">+</span><span class="w"> </span><span class="n">confidence</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="k">source</span><span class="o">-</span><span class="n">line</span><span class="w">     </span><span class="n">│</span><span class="w">  </span><span class="n">│</span>
+<span class="w">               </span><span class="n">│</span><span class="w">                   </span><span class="n">│</span><span class="w">    </span><span class="n">citation</span><span class="p">,</span><span class="w"> </span><span class="n">per</span><span class="w"> </span><span class="n">field</span><span class="w">           </span><span class="n">│</span><span class="w">  </span><span class="n">│</span>
+<span class="w">               </span><span class="n">│</span><span class="w">                   </span><span class="n">└───────────────┬────────────────┘</span><span class="w">  </span><span class="n">│</span>
+<span class="w">               </span><span class="n">│</span><span class="w">                                   </span><span class="n">│</span><span class="w">  </span><span class="n">low</span><span class="w"> </span><span class="n">confidence</span><span class="nv">?</span><span class="w">  </span><span class="n">│</span>
+<span class="w">               </span><span class="n">│</span><span class="w">                                   </span><span class="n">▼</span><span class="w">                  </span><span class="n">│</span>
+<span class="w">               </span><span class="n">│</span><span class="w">                    </span><span class="n">┌──────────────────────────────┐</span><span class="w">  </span><span class="n">│</span>
+<span class="w">               </span><span class="n">│</span><span class="w">                    </span><span class="n">│</span><span class="w"> </span><span class="n">TRAINING</span><span class="w"> </span><span class="n">UI</span><span class="w"> </span><span class="n">BACKEND</span><span class="w">            </span><span class="n">│</span><span class="w">  </span><span class="n">│</span>
+<span class="w">               </span><span class="n">│</span><span class="w">                    </span><span class="n">│</span><span class="w"> </span><span class="n">Postgres</span><span class="w"> </span><span class="n n-Quoted">`corrections`</span><span class="w"> </span><span class="k">table</span><span class="w">   </span><span class="n">│</span><span class="w">  </span><span class="n">│</span>
+<span class="w">               </span><span class="n">│</span><span class="w">                    </span><span class="n">│</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">keyed</span><span class="w"> </span><span class="n">few</span><span class="o">-</span><span class="n">shot</span><span class="w"> </span><span class="n">retrieval</span><span class="w">     </span><span class="n">│</span><span class="w">  </span><span class="n">│</span>
+<span class="w">               </span><span class="n">│</span><span class="w">                    </span><span class="n">│</span><span class="w"> </span><span class="n">→</span><span class="w"> </span><span class="n">re</span><span class="o">-</span><span class="n">runs</span><span class="w"> </span><span class="n">rule</span><span class="w"> </span><span class="k">engine</span><span class="w"> </span><span class="k">on</span><span class="w">       </span><span class="n">│</span><span class="w">  </span><span class="n">│</span>
+<span class="w">               </span><span class="n">│</span><span class="w">                    </span><span class="n">│</span><span class="w">   </span><span class="n">affected</span><span class="w"> </span><span class="n">devices</span><span class="w"> </span><span class="k">after</span><span class="w"> </span><span class="n">fix</span><span class="w">   </span><span class="n">│</span><span class="w">  </span><span class="n">│</span>
+<span class="w">               </span><span class="n">│</span><span class="w">                    </span><span class="n">└───────────────┬───────────────┘</span><span class="w">  </span><span class="n">│</span>
+<span class="w">               </span><span class="n">│</span><span class="w">                                     </span><span class="n">│</span><span class="w"> </span><span class="n">feeds</span><span class="w"> </span><span class="n">back</span><span class="w"> </span><span class="k">into</span><span class="w">  </span><span class="n">│</span>
+<span class="w">               </span><span class="n">│</span><span class="w">                                     </span><span class="n">│</span><span class="w"> </span><span class="k">next</span><span class="w"> </span><span class="n">LLM</span><span class="w"> </span><span class="k">call</span><span class="w"> </span><span class="n">───┘</span>
+<span class="w">               </span><span class="n">▼</span><span class="w">                                     </span><span class="n">▼</span>
+<span class="n">┌─────────────────────────────────────────────────────────────────────┐</span>
+<span class="n">│</span><span class="w">  </span><span class="n">NORMALIZED</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="n">—</span><span class="w"> </span><span class="n">Pydantic</span><span class="w"> </span><span class="n">model</span><span class="p">,</span><span class="w"> </span><span class="n">persisted</span><span class="w"> </span><span class="n">via</span><span class="w"> </span><span class="n">SQLModel</span><span class="o">/</span><span class="n">Postgres</span><span class="w">  </span><span class="n">│</span>
+<span class="n">│</span><span class="w">  </span><span class="p">(</span><span class="n">includes</span><span class="w"> </span><span class="n">device</span><span class="w"> </span><span class="n">identity</span><span class="o">:</span><span class="w"> </span><span class="n">hostname</span><span class="p">,</span><span class="w"> </span><span class="n">serial_number</span><span class="p">,</span><span class="w"> </span><span class="n">model</span><span class="p">,</span><span class="w"> </span><span class="n">fw_ver</span><span class="p">)</span><span class="w">  </span><span class="n">│</span>
+<span class="n">└───────────────────────────────┬───────────────────────────────────────┘</span>
+<span class="w">                                 </span><span class="n">▼</span>
+<span class="n">┌─────────────────────────────────────────────────────────────────────┐</span>
+<span class="n">│</span><span class="w">  </span><span class="n">RULE</span><span class="w"> </span><span class="k">ENGINE</span><span class="w"> </span><span class="n">—</span><span class="w"> </span><span class="n">pure</span><span class="w"> </span><span class="n">Python</span><span class="w"> </span><span class="n">evaluator</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">YAML</span><span class="w"> </span><span class="n">rule</span><span class="w"> </span><span class="n">packs</span><span class="w"> </span><span class="p">(</span><span class="n">CIS</span><span class="o">/</span><span class="n">NIST</span><span class="o">/</span><span class="n">STIG</span><span class="p">)</span><span class="n">│</span>
+<span class="n">└───────────────────────────────┬───────────────────────────────────────┘</span>
+<span class="w">                                 </span><span class="n">▼</span>
+<span class="n">┌─────────────────────────────────────────────────────────────────────┐</span>
+<span class="n">│</span><span class="w">  </span><span class="n">REPORTING</span><span class="w"> </span><span class="n">—</span><span class="w"> </span><span class="n">WeasyPrint</span><span class="w"> </span><span class="p">(</span><span class="n">Jinja2</span><span class="w"> </span><span class="n">HTML</span><span class="w"> </span><span class="n">template</span><span class="p">,</span><span class="w"> </span><span class="n">autoescape</span><span class="w"> </span><span class="n">→</span><span class="w"> </span><span class="n">PDF</span><span class="p">)</span><span class="w">      </span><span class="n">│</span>
+<span class="n">│</span><span class="w">  </span><span class="n">Includes</span><span class="w"> </span><span class="n">device</span><span class="w"> </span><span class="n">ID</span><span class="w"> </span><span class="k">block</span><span class="o">:</span><span class="w"> </span><span class="n">hostname</span><span class="p">,</span><span class="w"> </span><span class="kt">serial</span><span class="p">,</span><span class="w"> </span><span class="n">model</span><span class="p">,</span><span class="w"> </span><span class="n">firmware</span><span class="w">          </span><span class="n">│</span>
+<span class="n">└─────────────────────────────────────────────────────────────────────┘</span>
+</code></pre></div>
+
+<hr />
+<h2 id="3-repository-structure">3. Repository structure</h2>
+<div class="codehilite"><pre><span></span><code><span class="n">compliance</span><span class="o">-</span><span class="n">engine</span><span class="o">/</span>
+<span class="err">├──</span><span class="w"> </span><span class="n">backend</span><span class="o">/</span>
+<span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">app</span><span class="o">/</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">main</span><span class="o">.</span><span class="n">py</span><span class="w">                  </span><span class="c1"># FastAPI app entrypoint, CORS middleware</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">api</span><span class="o">/</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">devices</span><span class="o">.</span><span class="n">py</span><span class="w">           </span><span class="c1"># upload, list, get device</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">parse</span><span class="o">.</span><span class="n">py</span><span class="w">             </span><span class="c1"># trigger parse, get parse status</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">findings</span><span class="o">.</span><span class="n">py</span><span class="w">          </span><span class="c1"># get findings for a device</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">training</span><span class="o">.</span><span class="n">py</span><span class="w">          </span><span class="c1"># get pending corrections, submit correction</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">frameworks</span><span class="o">.</span><span class="n">py</span><span class="w">        </span><span class="c1"># list available compliance frameworks</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">└──</span><span class="w"> </span><span class="n">reports</span><span class="o">.</span><span class="n">py</span><span class="w">           </span><span class="c1"># generate/download PDF</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">core</span><span class="o">/</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">config</span><span class="o">.</span><span class="n">py</span><span class="w">            </span><span class="c1"># env/settings (pydantic-settings)</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">└──</span><span class="w"> </span><span class="n">db</span><span class="o">.</span><span class="n">py</span><span class="w">                </span><span class="c1"># SQLModel engine/session</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">models</span><span class="o">/</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">schema</span><span class="o">.</span><span class="n">py</span><span class="w">            </span><span class="c1"># NormalizedDeviceConfig, SecurityBaselineField (Pydantic)</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">└──</span><span class="w"> </span><span class="n">tables</span><span class="o">.</span><span class="n">py</span><span class="w">            </span><span class="c1"># SQLModel table definitions</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">ingestion</span><span class="o">/</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">vendor_detect</span><span class="o">.</span><span class="n">py</span><span class="w">     </span><span class="c1"># fingerprinting logic (scored, MULTILINE)</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">└──</span><span class="w"> </span><span class="n">redact</span><span class="o">.</span><span class="n">py</span><span class="w">            </span><span class="c1"># strip secrets before any LLM call</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">parsers</span><span class="o">/</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">deterministic</span><span class="o">.</span><span class="n">py</span><span class="w">     </span><span class="c1"># ntc-templates wrapper, try/except → fallback signal</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">└──</span><span class="w"> </span><span class="n">llm_fallback</span><span class="o">.</span><span class="n">py</span><span class="w">      </span><span class="c1"># async instructor + prompt + confidence</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">training</span><span class="o">/</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">└──</span><span class="w"> </span><span class="n">corrections</span><span class="o">.</span><span class="n">py</span><span class="w">       </span><span class="c1"># correction storage + few-shot retrieval + re-evaluate trigger</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">rules</span><span class="o">/</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">engine</span><span class="o">.</span><span class="n">py</span><span class="w">            </span><span class="c1"># evaluator</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">└──</span><span class="w"> </span><span class="n">packs</span><span class="o">/</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">       </span><span class="err">├──</span><span class="w"> </span><span class="n">cis_ios</span><span class="o">.</span><span class="n">yaml</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">       </span><span class="err">├──</span><span class="w"> </span><span class="n">nist_800_53</span><span class="o">.</span><span class="n">yaml</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">       </span><span class="err">└──</span><span class="w"> </span><span class="n">stig_generic</span><span class="o">.</span><span class="n">yaml</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">└──</span><span class="w"> </span><span class="n">reporting</span><span class="o">/</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">       </span><span class="err">├──</span><span class="w"> </span><span class="n">templates</span><span class="o">/</span><span class="n">report</span><span class="o">.</span><span class="n">html</span><span class="w">   </span><span class="c1"># Jinja2, autoescape=True</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">       </span><span class="err">└──</span><span class="w"> </span><span class="n">generate</span><span class="o">.</span><span class="n">py</span>
+<span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">tests</span><span class="o">/</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">└──</span><span class="w"> </span><span class="n">fixtures</span><span class="o">/</span><span class="w">                </span><span class="c1"># dummy data, see §10 — mirrors ntc-templates layout</span>
+<span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">alembic</span><span class="o">/</span>
+<span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">pyproject</span><span class="o">.</span><span class="n">toml</span>
+<span class="err">│</span><span class="w">   </span><span class="err">└──</span><span class="w"> </span><span class="n">Dockerfile</span><span class="w">                   </span><span class="c1"># installs libpango/cairo/gdk-pixbuf for WeasyPrint</span>
+<span class="err">├──</span><span class="w"> </span><span class="n">frontend</span><span class="o">/</span>
+<span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">src</span><span class="o">/</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">pages</span><span class="o">/</span><span class="n">Upload</span><span class="o">.</span><span class="n">tsx</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">pages</span><span class="o">/</span><span class="n">Findings</span><span class="o">.</span><span class="n">tsx</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">├──</span><span class="w"> </span><span class="n">pages</span><span class="o">/</span><span class="n">Training</span><span class="o">.</span><span class="n">tsx</span>
+<span class="err">│</span><span class="w">   </span><span class="err">│</span><span class="w">   </span><span class="err">└──</span><span class="w"> </span><span class="n">components</span><span class="o">/</span>
+<span class="err">│</span><span class="w">   </span><span class="err">└──</span><span class="w"> </span><span class="n">Dockerfile</span>
+<span class="err">└──</span><span class="w"> </span><span class="n">docker</span><span class="o">-</span><span class="n">compose</span><span class="o">.</span><span class="n">yml</span>
+</code></pre></div>
+
+<hr />
+<h2 id="4-core-data-models-pydantic-v2">4. Core data models (Pydantic v2)</h2>
+<div class="codehilite"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">Field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Literal</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">SourceEvidence</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">raw_line</span><span class="p">:</span> <span class="nb">str</span>                       <span class="c1"># the exact original config line</span>
+    <span class="n">line_number</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">SecurityBaselineField</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">control_area</span><span class="p">:</span> <span class="nb">str</span>                   <span class="c1"># e.g. &quot;ssh_version&quot;, &quot;telnet_enabled&quot;, &quot;password_min_length&quot;</span>
+    <span class="n">value</span><span class="p">:</span> <span class="nb">str</span>                          <span class="c1"># the normalized value, e.g. &quot;2&quot;, &quot;false&quot;, &quot;8&quot;</span>
+    <span class="n">evidence</span><span class="p">:</span> <span class="n">SourceEvidence</span>
+    <span class="n">confidence</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">ge</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">le</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>   <span class="c1"># 1.0 for deterministic-lane fields</span>
+    <span class="n">source_lane</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;deterministic&quot;</span><span class="p">,</span> <span class="s2">&quot;llm&quot;</span><span class="p">]</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">DeviceIdentity</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="c1"># NEW in v2 — required by the PS&#39;s &quot;Device Identification&quot; report section</span>
+    <span class="n">hostname</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">serial_number</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">firmware_version</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">NormalizedDeviceConfig</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">device_id</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">vendor</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">os_hint</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">identity</span><span class="p">:</span> <span class="n">DeviceIdentity</span> <span class="o">=</span> <span class="n">DeviceIdentity</span><span class="p">()</span>
+    <span class="n">fields</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">SecurityBaselineField</span><span class="p">]</span>
+    <span class="n">parsed_at</span><span class="p">:</span> <span class="n">datetime</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ComplianceRule</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">control_id</span><span class="p">:</span> <span class="nb">str</span>                     <span class="c1"># e.g. &quot;CIS-1.1.4&quot;</span>
+    <span class="n">framework</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;CIS&quot;</span><span class="p">,</span> <span class="s2">&quot;NIST_800_53&quot;</span><span class="p">,</span> <span class="s2">&quot;STIG&quot;</span><span class="p">,</span> <span class="s2">&quot;ISO_27001&quot;</span><span class="p">]</span>
+    <span class="n">control_area</span><span class="p">:</span> <span class="nb">str</span>                   <span class="c1"># must match a SecurityBaselineField.control_area</span>
+    <span class="n">expected_value</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">severity</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;low&quot;</span><span class="p">,</span> <span class="s2">&quot;medium&quot;</span><span class="p">,</span> <span class="s2">&quot;high&quot;</span><span class="p">,</span> <span class="s2">&quot;critical&quot;</span><span class="p">]</span>
+    <span class="n">remediation_template</span><span class="p">:</span> <span class="nb">str</span>           <span class="c1"># e.g. &quot;ip ssh version 2&quot; — vendor-specific fill-in</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Finding</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">device_id</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">control_id</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">status</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;pass&quot;</span><span class="p">,</span> <span class="s2">&quot;fail&quot;</span><span class="p">,</span> <span class="s2">&quot;needs_review&quot;</span><span class="p">]</span>
+    <span class="n">observed_value</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">severity</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">remediation_cli</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">evidence</span><span class="p">:</span> <span class="n">SourceEvidence</span> <span class="o">|</span> <span class="kc">None</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">CorrectionExample</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">vendor</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">os_hint</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+    <span class="n">raw_line</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">mapped_control_area</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">mapped_value</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">corrected_by</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">created_at</span><span class="p">:</span> <span class="n">datetime</span>
+</code></pre></div>
+
+<hr />
+<h2 id="5-database-schema-postgres-ddl-via-sqlmodelalembic">5. Database schema (Postgres DDL, via SQLModel/Alembic)</h2>
+<div class="codehilite"><pre><span></span><code><span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">devices</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="n">UUID</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="n">gen_random_uuid</span><span class="p">(),</span>
+<span class="w">    </span><span class="n">filename</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">vendor</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span>
+<span class="w">    </span><span class="n">os_hint</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span>
+<span class="w">    </span><span class="n">detection_confidence</span><span class="w"> </span><span class="nb">FLOAT</span><span class="p">,</span>
+<span class="w">    </span><span class="c1">-- NEW in v2: required by the PS&#39;s PDF report &quot;Device Identification&quot; section</span>
+<span class="w">    </span><span class="n">hostname</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span>
+<span class="w">    </span><span class="n">serial_number</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span>
+<span class="w">    </span><span class="n">model</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span>
+<span class="w">    </span><span class="n">firmware_version</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span>
+<span class="w">    </span><span class="n">raw_config</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">uploaded_at</span><span class="w"> </span><span class="n">TIMESTAMPTZ</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="n">now</span><span class="p">()</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">normalized_fields</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="n">UUID</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="n">gen_random_uuid</span><span class="p">(),</span>
+<span class="w">    </span><span class="n">device_id</span><span class="w"> </span><span class="n">UUID</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">devices</span><span class="p">(</span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="k">DELETE</span><span class="w"> </span><span class="k">CASCADE</span><span class="p">,</span>
+<span class="w">    </span><span class="n">control_area</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">value</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">raw_line</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">confidence</span><span class="w"> </span><span class="nb">FLOAT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">source_lane</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">CHECK</span><span class="w"> </span><span class="p">(</span><span class="n">source_lane</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="p">(</span><span class="s1">&#39;deterministic&#39;</span><span class="p">,</span><span class="s1">&#39;llm&#39;</span><span class="p">)),</span>
+<span class="w">    </span><span class="c1">-- NEW in v2: mark superseded rows instead of silently overwriting on correction,</span>
+<span class="w">    </span><span class="c1">-- so there&#39;s an audit trail — ironic to lose this in a *compliance* tool.</span>
+<span class="w">    </span><span class="n">superseded</span><span class="w"> </span><span class="nb">BOOLEAN</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="k">false</span><span class="p">,</span>
+<span class="w">    </span><span class="n">updated_at</span><span class="w"> </span><span class="n">TIMESTAMPTZ</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="n">now</span><span class="p">()</span>
+<span class="p">);</span>
+<span class="k">CREATE</span><span class="w"> </span><span class="k">INDEX</span><span class="w"> </span><span class="n">idx_normalized_fields_device_active</span>
+<span class="w">    </span><span class="k">ON</span><span class="w"> </span><span class="n">normalized_fields</span><span class="w"> </span><span class="p">(</span><span class="n">device_id</span><span class="p">,</span><span class="w"> </span><span class="n">control_area</span><span class="p">)</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="n">superseded</span><span class="p">;</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">compliance_rules</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="n">UUID</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="n">gen_random_uuid</span><span class="p">(),</span>
+<span class="w">    </span><span class="n">control_id</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">framework</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">control_area</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">expected_value</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">severity</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">remediation_template</span><span class="w"> </span><span class="nb">TEXT</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">findings</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="n">UUID</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="n">gen_random_uuid</span><span class="p">(),</span>
+<span class="w">    </span><span class="n">device_id</span><span class="w"> </span><span class="n">UUID</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">devices</span><span class="p">(</span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="k">DELETE</span><span class="w"> </span><span class="k">CASCADE</span><span class="p">,</span>
+<span class="w">    </span><span class="n">control_id</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">status</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">CHECK</span><span class="w"> </span><span class="p">(</span><span class="n">status</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="p">(</span><span class="s1">&#39;pass&#39;</span><span class="p">,</span><span class="s1">&#39;fail&#39;</span><span class="p">,</span><span class="s1">&#39;needs_review&#39;</span><span class="p">)),</span>
+<span class="w">    </span><span class="n">observed_value</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span>
+<span class="w">    </span><span class="n">severity</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span>
+<span class="w">    </span><span class="n">remediation_cli</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span>
+<span class="w">    </span><span class="n">raw_line</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span>
+<span class="w">    </span><span class="n">evaluated_at</span><span class="w"> </span><span class="n">TIMESTAMPTZ</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="n">now</span><span class="p">()</span><span class="w">   </span><span class="c1">-- NEW: so re-evaluation after a correction is visible</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">corrections</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="n">UUID</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="n">gen_random_uuid</span><span class="p">(),</span>
+<span class="w">    </span><span class="n">vendor</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">os_hint</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span>
+<span class="w">    </span><span class="n">raw_line</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">mapped_control_area</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">mapped_value</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">corrected_by</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span>
+<span class="w">    </span><span class="n">created_at</span><span class="w"> </span><span class="n">TIMESTAMPTZ</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="n">now</span><span class="p">()</span>
+<span class="p">);</span>
+<span class="k">CREATE</span><span class="w"> </span><span class="k">INDEX</span><span class="w"> </span><span class="n">idx_corrections_vendor_os</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="n">corrections</span><span class="w"> </span><span class="p">(</span><span class="n">vendor</span><span class="p">,</span><span class="w"> </span><span class="n">os_hint</span><span class="p">);</span>
+</code></pre></div>
+
+<hr />
+<h2 id="6-api-contract">6. API contract</h2>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST</code></td>
+<td><code>/devices/upload</code></td>
+<td>Upload one or more config files. Returns <code>device_id</code>(s).</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/devices</code></td>
+<td><strong>NEW</strong> — list all devices, for the dashboard/training screens to populate from.</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/devices/{id}</code></td>
+<td>Device metadata: identity, detected vendor, detection confidence.</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/devices/{id}/parse</code></td>
+<td>Triggers vendor detection → deterministic (with LLM fallback on failure/empty) → normalization.</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/devices/{id}/fields</code></td>
+<td>Returns normalized fields with confidence + evidence.</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/frameworks</code></td>
+<td><strong>NEW</strong> — lists available frameworks (<code>CIS</code>, <code>NIST_800_53</code>, <code>STIG</code>, <code>ISO_27001</code>) so the frontend doesn't hardcode them.</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/devices/{id}/evaluate?framework=CIS</code></td>
+<td>Runs the rule engine, writes <code>findings</code>.</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/devices/{id}/findings</code></td>
+<td>Returns findings for the dashboard.</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/devices/{id}/report.pdf</code></td>
+<td>Generates and streams the PDF report.</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/training/pending</code></td>
+<td>Lists low-confidence fields awaiting human review, across all devices.</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/training/corrections</code></td>
+<td>Submits a human correction; writes to <code>corrections</code>, re-normalizes affected fields, <strong>and re-runs <code>/evaluate</code> for every device whose fields changed</strong> — this is what makes the findings dashboard visibly update after a correction.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="7-module-by-module-design">7. Module-by-module design</h2>
+<h3 id="71-vendor-detection-ingestionvendor_detectpy">7.1 Vendor detection (<code>ingestion/vendor_detect.py</code>)</h3>
+<p>Pure Python, no AI — fast and cheap since it runs on every upload before any real parsing happens.</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+
+<span class="n">FINGERPRINTS</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="c1"># (vendor, os_hint, [keyword patterns], ntc_platform, assumed_command)</span>
+    <span class="p">(</span><span class="s2">&quot;cisco&quot;</span><span class="p">,</span> <span class="s2">&quot;ios&quot;</span><span class="p">,</span> <span class="p">[</span><span class="sa">r</span><span class="s2">&quot;^Building configuration&quot;</span><span class="p">,</span> <span class="sa">r</span><span class="s2">&quot;^version \d+\.\d+&quot;</span><span class="p">,</span> <span class="sa">r</span><span class="s2">&quot;^service password-encryption&quot;</span><span class="p">],</span>
+     <span class="s2">&quot;cisco_ios&quot;</span><span class="p">,</span> <span class="s2">&quot;show running-config&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;juniper&quot;</span><span class="p">,</span> <span class="s2">&quot;junos&quot;</span><span class="p">,</span> <span class="p">[</span><span class="sa">r</span><span class="s2">&quot;^system \{&quot;</span><span class="p">,</span> <span class="sa">r</span><span class="s2">&quot;^## Last commit:&quot;</span><span class="p">],</span>
+     <span class="s2">&quot;juniper_junos&quot;</span><span class="p">,</span> <span class="s2">&quot;show configuration&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;paloalto&quot;</span><span class="p">,</span> <span class="s2">&quot;panos&quot;</span><span class="p">,</span> <span class="p">[</span><span class="sa">r</span><span class="s2">&quot;&lt;config version=&quot;</span><span class="p">,</span> <span class="sa">r</span><span class="s2">&quot;^set (deviceconfig|network|rulebase)&quot;</span><span class="p">],</span>
+     <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>   <span class="c1"># no ntc-templates match → LLM lane by design</span>
+    <span class="p">(</span><span class="s2">&quot;fortinet&quot;</span><span class="p">,</span> <span class="s2">&quot;fortios&quot;</span><span class="p">,</span> <span class="p">[</span><span class="sa">r</span><span class="s2">&quot;^config (system|firewall) &quot;</span><span class="p">],</span>
+     <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;sonic&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">[</span><span class="sa">r</span><span class="s1">&#39;&quot;DEVICE_METADATA&quot;\s*:\s*\{&#39;</span><span class="p">],</span>
+     <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;mikrotik&quot;</span><span class="p">,</span> <span class="s2">&quot;routeros&quot;</span><span class="p">,</span> <span class="p">[</span><span class="sa">r</span><span class="s2">&quot;^/interface&quot;</span><span class="p">,</span> <span class="sa">r</span><span class="s2">&quot;^/ip address&quot;</span><span class="p">],</span>
+     <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+<span class="p">]</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">detect</span><span class="p">(</span><span class="n">raw_text</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+    <span class="n">best</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">for</span> <span class="n">vendor</span><span class="p">,</span> <span class="n">os_hint</span><span class="p">,</span> <span class="n">patterns</span><span class="p">,</span> <span class="n">platform</span><span class="p">,</span> <span class="n">command</span> <span class="ow">in</span> <span class="n">FINGERPRINTS</span><span class="p">:</span>
+        <span class="n">hits</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="mi">1</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">patterns</span> <span class="k">if</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">raw_text</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">MULTILINE</span><span class="p">))</span>
+        <span class="n">score</span> <span class="o">=</span> <span class="n">hits</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">patterns</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">score</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="p">(</span><span class="n">best</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">score</span> <span class="o">&gt;</span> <span class="n">best</span><span class="p">[</span><span class="s2">&quot;confidence&quot;</span><span class="p">]):</span>
+            <span class="n">best</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;vendor&quot;</span><span class="p">:</span> <span class="n">vendor</span><span class="p">,</span> <span class="s2">&quot;os_hint&quot;</span><span class="p">:</span> <span class="n">os_hint</span><span class="p">,</span> <span class="s2">&quot;confidence&quot;</span><span class="p">:</span> <span class="n">score</span><span class="p">,</span>
+                    <span class="s2">&quot;platform&quot;</span><span class="p">:</span> <span class="n">platform</span><span class="p">,</span> <span class="s2">&quot;command&quot;</span><span class="p">:</span> <span class="n">command</span><span class="p">}</span>
+    <span class="k">return</span> <span class="n">best</span> <span class="ow">or</span> <span class="p">{</span><span class="s2">&quot;vendor&quot;</span><span class="p">:</span> <span class="s2">&quot;unknown&quot;</span><span class="p">,</span> <span class="s2">&quot;os_hint&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;confidence&quot;</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span>
+                     <span class="s2">&quot;platform&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;command&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">}</span>
+</code></pre></div>
+
+<p>Key change from v1: <code>re.MULTILINE</code> is now explicit (v1's anchors would only match at absolute string-start), scoring is keyword-fraction-based rather than a single brittle regex, and each entry now carries the <code>ntc_platform</code> + assumed <code>command</code> needed by §7.2 — or <code>None</code> for vendors you already know have no template, which routes straight to the LLM lane without wasting a parse attempt.</p>
+<h3 id="72-deterministic-parser-parsersdeterministicpy">7.2 Deterministic parser (<code>parsers/deterministic.py</code>)</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">ntc_templates.parse</span><span class="w"> </span><span class="kn">import</span> <span class="n">parse_output</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">NoDeterministicTemplate</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="k">pass</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">parse_deterministic</span><span class="p">(</span><span class="n">platform</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">command</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">raw_text</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">platform</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">command</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">NoDeterministicTemplate</span><span class="p">(</span><span class="s2">&quot;fingerprint has no known ntc-templates match&quot;</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">parse_output</span><span class="p">(</span><span class="n">platform</span><span class="o">=</span><span class="n">platform</span><span class="p">,</span> <span class="n">command</span><span class="o">=</span><span class="n">command</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">raw_text</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">NoDeterministicTemplate</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">result</span><span class="p">:</span>
+        <span class="c1"># parsed successfully but got nothing back — treat as &quot;no real match&quot;, not success</span>
+        <span class="k">raise</span> <span class="n">NoDeterministicTemplate</span><span class="p">(</span><span class="s2">&quot;empty parse result&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">result</span>
+</code></pre></div>
+
+<p>Every value coming out of this path gets <code>confidence = 1.0</code> and <code>source_lane = "deterministic"</code>. The orchestrator catches <code>NoDeterministicTemplate</code> and falls through to the LLM lane automatically — the routing decision is now "attempt, then fall back," not "predict, then commit," which is more robust against a fingerprint that guessed right on vendor but wrong on command/platform variant.</p>
+<h3 id="73-secret-redaction-ingestionredactpy-new-in-v2">7.3 Secret redaction (<code>ingestion/redact.py</code>) — NEW in v2</h3>
+<p>Runs on any text about to leave the process for the LLM lane. Not a security guarantee, but a meaningful reduction of exposure for an enterprise security tool sending customer configs to a third-party API.</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+
+<span class="n">REDACTION_PATTERNS</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">(</span><span class="sa">r</span><span class="s2">&quot;secret \d+ \S+&quot;</span><span class="p">,</span> <span class="s2">&quot;secret &lt;REDACTED&gt;&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="sa">r</span><span class="s2">&quot;password \d+ \S+&quot;</span><span class="p">,</span> <span class="s2">&quot;password &lt;REDACTED&gt;&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="sa">r</span><span class="s2">&quot;pre-shared-key \S+&quot;</span><span class="p">,</span> <span class="s2">&quot;pre-shared-key &lt;REDACTED&gt;&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="sa">r</span><span class="s2">&quot;community \S+&quot;</span><span class="p">,</span> <span class="s2">&quot;community &lt;REDACTED&gt;&quot;</span><span class="p">),</span>
+    <span class="p">(</span><span class="sa">r</span><span class="s2">&quot;(api[_-]?key\s*[:=]\s*)\S+&quot;</span><span class="p">,</span> <span class="sa">r</span><span class="s2">&quot;\1&lt;REDACTED&gt;&quot;</span><span class="p">),</span>
+<span class="p">]</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">redact</span><span class="p">(</span><span class="n">raw_text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="k">for</span> <span class="n">pattern</span><span class="p">,</span> <span class="n">replacement</span> <span class="ow">in</span> <span class="n">REDACTION_PATTERNS</span><span class="p">:</span>
+        <span class="n">raw_text</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="n">pattern</span><span class="p">,</span> <span class="n">replacement</span><span class="p">,</span> <span class="n">raw_text</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">raw_text</span>
+</code></pre></div>
+
+<h3 id="74-llm-fallback-lane-parsersllm_fallbackpy">7.4 LLM fallback lane (<code>parsers/llm_fallback.py</code>)</h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">instructor</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">anthropic</span><span class="w"> </span><span class="kn">import</span> <span class="n">AsyncAnthropic</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">app.models.schema</span><span class="w"> </span><span class="kn">import</span> <span class="n">NormalizedDeviceConfig</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">app.ingestion.redact</span><span class="w"> </span><span class="kn">import</span> <span class="n">redact</span>
+
+<span class="n">client</span> <span class="o">=</span> <span class="n">instructor</span><span class="o">.</span><span class="n">from_anthropic</span><span class="p">(</span><span class="n">AsyncAnthropic</span><span class="p">())</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">parse_with_llm</span><span class="p">(</span><span class="n">vendor</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">raw_config</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">few_shot</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">NormalizedDeviceConfig</span><span class="p">:</span>
+    <span class="n">safe_config</span> <span class="o">=</span> <span class="n">redact</span><span class="p">(</span><span class="n">raw_config</span><span class="p">)</span>
+    <span class="n">few_shot_block</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">few_shot</span><span class="p">:</span>
+        <span class="n">few_shot_block</span> <span class="o">=</span> <span class="s2">&quot;Examples of correct mappings for this vendor:</span><span class="se">\n</span><span class="s2">&quot;</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">few_shot</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+    <span class="k">return</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">messages</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+        <span class="n">model</span><span class="o">=</span><span class="s2">&quot;claude-opus-5&quot;</span><span class="p">,</span>   <span class="c1"># accuracy matters more than latency for extraction + honest confidence</span>
+        <span class="n">max_tokens</span><span class="o">=</span><span class="mi">4000</span><span class="p">,</span>
+        <span class="n">response_model</span><span class="o">=</span><span class="n">NormalizedDeviceConfig</span><span class="p">,</span>
+        <span class="n">messages</span><span class="o">=</span><span class="p">[{</span>
+            <span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;user&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;content&quot;</span><span class="p">:</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Vendor: </span><span class="si">{</span><span class="n">vendor</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">few_shot_block</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="s2">&quot;Extract every security-relevant setting from this config into the schema. &quot;</span>
+                <span class="s2">&quot;For every field, quote the EXACT source line you derived it from, and set &quot;</span>
+                <span class="s2">&quot;confidence honestly — if you are guessing, say so with a low number.</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">safe_config</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">),</span>
+        <span class="p">}],</span>
+    <span class="p">)</span>
+</code></pre></div>
+
+<p>Changes from v1: async client so it doesn't block the FastAPI event loop when called from an <code>async def</code> route; redaction applied before the config text is sent anywhere; corrected model string; few-shot examples are now an explicit parameter rather than assumed to be injected elsewhere. A field routes to the Training UI when <code>confidence &lt; CONFIDENCE_THRESHOLD</code> (start at <code>0.75</code>, tune from real usage). For bulk uploads, call this with <code>asyncio.gather(*[parse_with_llm(...) for device in batch])</code> so unknown-vendor files parse concurrently.</p>
+<h3 id="75-training-ui-backend-trainingcorrectionspy">7.5 Training UI backend (<code>training/corrections.py</code>)</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_few_shot_examples</span><span class="p">(</span><span class="n">vendor</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">os_hint</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">db</span><span class="o">.</span><span class="n">exec</span><span class="p">(</span>
+        <span class="n">select</span><span class="p">(</span><span class="n">Correction</span><span class="p">)</span>
+        <span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">Correction</span><span class="o">.</span><span class="n">vendor</span> <span class="o">==</span> <span class="n">vendor</span><span class="p">,</span> <span class="n">Correction</span><span class="o">.</span><span class="n">os_hint</span> <span class="o">==</span> <span class="n">os_hint</span><span class="p">)</span>
+        <span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="n">Correction</span><span class="o">.</span><span class="n">created_at</span><span class="o">.</span><span class="n">desc</span><span class="p">())</span>
+        <span class="o">.</span><span class="n">limit</span><span class="p">(</span><span class="n">limit</span><span class="p">)</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">submit_correction</span><span class="p">(</span><span class="n">correction</span><span class="p">:</span> <span class="n">CorrectionExample</span><span class="p">,</span> <span class="n">db</span><span class="p">):</span>
+    <span class="n">db</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">Correction</span><span class="p">(</span><span class="o">**</span><span class="n">correction</span><span class="o">.</span><span class="n">model_dump</span><span class="p">()))</span>
+    <span class="n">db</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+    <span class="c1"># NEW in v2: close the loop — mark the old field superseded, write the corrected value,</span>
+    <span class="c1"># then re-run the rule engine for every device this correction affects, so</span>
+    <span class="c1"># `needs_review` findings actually flip to pass/fail without a manual re-trigger.</span>
+    <span class="n">affected_devices</span> <span class="o">=</span> <span class="n">get_devices_with_control_area</span><span class="p">(</span>
+        <span class="n">vendor</span><span class="o">=</span><span class="n">correction</span><span class="o">.</span><span class="n">vendor</span><span class="p">,</span> <span class="n">os_hint</span><span class="o">=</span><span class="n">correction</span><span class="o">.</span><span class="n">os_hint</span><span class="p">,</span>
+        <span class="n">control_area</span><span class="o">=</span><span class="n">correction</span><span class="o">.</span><span class="n">mapped_control_area</span><span class="p">,</span> <span class="n">db</span><span class="o">=</span><span class="n">db</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">for</span> <span class="n">device</span> <span class="ow">in</span> <span class="n">affected_devices</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">reevaluate_device</span><span class="p">(</span><span class="n">device</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">db</span><span class="p">)</span>
+</code></pre></div>
+
+<h3 id="76-rule-engine-rulesenginepy">7.6 Rule engine (<code>rules/engine.py</code>)</h3>
+<div class="codehilite"><pre><span></span><code><span class="c1"># rules/packs/cis_ios.yaml</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">control_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CIS-1.1.4</span>
+<span class="w">  </span><span class="nt">framework</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CIS</span>
+<span class="w">  </span><span class="nt">control_area</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ssh_version</span>
+<span class="w">  </span><span class="nt">expected_value</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2&quot;</span>
+<span class="w">  </span><span class="nt">severity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">high</span>
+<span class="w">  </span><span class="nt">remediation_template</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;ip</span><span class="nv"> </span><span class="s">ssh</span><span class="nv"> </span><span class="s">version</span><span class="nv"> </span><span class="s">2&quot;</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">control_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CIS-1.2.1</span>
+<span class="w">  </span><span class="nt">framework</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CIS</span>
+<span class="w">  </span><span class="nt">control_area</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">telnet_enabled</span>
+<span class="w">  </span><span class="nt">expected_value</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;false&quot;</span>
+<span class="w">  </span><span class="nt">severity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">critical</span>
+<span class="w">  </span><span class="nt">remediation_template</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;no</span><span class="nv"> </span><span class="s">service</span><span class="nv"> </span><span class="s">telnet&quot;</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">evaluate</span><span class="p">(</span><span class="n">fields</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">SecurityBaselineField</span><span class="p">],</span> <span class="n">rules</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ComplianceRule</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Finding</span><span class="p">]:</span>
+    <span class="n">field_map</span> <span class="o">=</span> <span class="p">{</span><span class="n">f</span><span class="o">.</span><span class="n">control_area</span><span class="p">:</span> <span class="n">f</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">fields</span><span class="p">}</span>
+    <span class="n">findings</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">rule</span> <span class="ow">in</span> <span class="n">rules</span><span class="p">:</span>
+        <span class="n">field</span> <span class="o">=</span> <span class="n">field_map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">rule</span><span class="o">.</span><span class="n">control_area</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">field</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">findings</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Finding</span><span class="p">(</span><span class="n">status</span><span class="o">=</span><span class="s2">&quot;needs_review&quot;</span><span class="p">,</span> <span class="o">...</span><span class="p">))</span>  <span class="c1"># never silently skip</span>
+        <span class="k">elif</span> <span class="n">field</span><span class="o">.</span><span class="n">confidence</span> <span class="o">&lt;</span> <span class="n">CONFIDENCE_THRESHOLD</span><span class="p">:</span>
+            <span class="n">findings</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Finding</span><span class="p">(</span><span class="n">status</span><span class="o">=</span><span class="s2">&quot;needs_review&quot;</span><span class="p">,</span> <span class="o">...</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">status</span> <span class="o">=</span> <span class="s2">&quot;pass&quot;</span> <span class="k">if</span> <span class="n">field</span><span class="o">.</span><span class="n">value</span> <span class="o">==</span> <span class="n">rule</span><span class="o">.</span><span class="n">expected_value</span> <span class="k">else</span> <span class="s2">&quot;fail&quot;</span>
+            <span class="n">findings</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Finding</span><span class="p">(</span><span class="n">status</span><span class="o">=</span><span class="n">status</span><span class="p">,</span> <span class="n">remediation_cli</span><span class="o">=</span><span class="n">rule</span><span class="o">.</span><span class="n">remediation_template</span><span class="p">,</span> <span class="o">...</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">findings</span>
+</code></pre></div>
+
+<h3 id="77-reporting-reportinggeneratepy">7.7 Reporting (<code>reporting/generate.py</code>)</h3>
+<p>Jinja2 renders <code>templates/report.html</code> with <strong><code>autoescape=True</code></strong> (unescaped config/remediation text containing <code>&lt;</code>/<code>&gt;</code> from ACL syntax will otherwise break the HTML) with the device metadata (now including hostname/serial/model/firmware) + findings list, then <code>weasyprint.HTML(string=rendered).write_pdf(...)</code>.</p>
+<hr />
+<h2 id="8-sequence-flow-per-lane">8. Sequence flow per lane</h2>
+<p><strong>Deterministic (Cisco/Juniper):</strong>
+<code>POST /devices/upload</code> → vendor_detect fingerprints as <code>cisco_ios</code>/<code>show running-config</code> with high confidence → <code>parse_deterministic()</code> via ntc-templates succeeds → fields written with <code>confidence=1.0</code> → <code>POST /devices/{id}/evaluate</code> runs rule engine → <code>GET /report.pdf</code>.</p>
+<p><strong>Deterministic attempt fails, falls through (new in v2):</strong>
+Upload → fingerprint guesses <code>cisco_ios</code> but it's actually IOS-XE with a template mismatch → <code>parse_deterministic()</code> raises <code>NoDeterministicTemplate</code> → orchestrator catches it and calls <code>parse_with_llm()</code> instead, same as a vendor with no template at all. No dead end.</p>
+<p><strong>LLM fallback (Palo Alto, no template):</strong>
+Upload → vendor_detect recognizes vendor but has no ntc-templates match → config redacted → <code>parse_with_llm()</code> called with no few-shot examples (first time) → fields returned with per-field confidence → all fields ≥ 0.75 → straight to rule engine → report. No human touches this run.</p>
+<p><strong>LLM fallback + training (unknown SONiC device):</strong>
+Upload → vendor_detect returns low confidence, <code>os_hint=None</code> → config redacted → <code>parse_with_llm()</code> called → several fields return confidence &lt; 0.75 → those fields appear in <code>GET /training/pending</code> → human calls <code>POST /training/corrections</code> for each → correction stored, old field marked superseded, <strong>rule engine re-run automatically</strong> on the affected device → <strong>next</strong> SONiC upload calls <code>get_few_shot_examples()</code> first and injects them into the prompt → confidence on those same fields should now clear the threshold automatically.</p>
+<hr />
+<h2 id="9-deployment-docker-composeyml-shape-only">9. Deployment (docker-compose.yml, shape only)</h2>
+<div class="codehilite"><pre><span></span><code><span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">api</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">build</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./backend</span>
+<span class="w">    </span><span class="nt">env_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.env</span>
+<span class="w">    </span><span class="nt">depends_on</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">db</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">ports</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;8000:8000&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">db</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">postgres:15</span>
+<span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">POSTGRES_DB</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">compliance</span>
+<span class="w">    </span><span class="nt">volumes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;pgdata:/var/lib/postgresql/data&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">frontend</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">build</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./frontend</span>
+<span class="w">    </span><span class="nt">ports</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;5173:5173&quot;</span><span class="p p-Indicator">]</span>
+<span class="nt">volumes</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">pgdata</span><span class="p">:</span>
+</code></pre></div>
+
+<p><strong><code>backend/Dockerfile</code> must install WeasyPrint's system dependencies</strong> (easy to forget, fails at build time, not code-review time):</p>
+<div class="codehilite"><pre><span></span><code><span class="k">RUN</span><span class="w"> </span>apt-get<span class="w"> </span>update<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>libpango-1.0-0<span class="w"> </span>libpangocairo-1.0-0<span class="w"> </span>libcairo2<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>libgdk-pixbuf2.0-0<span class="w"> </span>libffi-dev<span class="w"> </span>shared-mime-info<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span><span class="o">&amp;&amp;</span><span class="w"> </span>rm<span class="w"> </span>-rf<span class="w"> </span>/var/lib/apt/lists/*
+</code></pre></div>
+
+<p><strong><code>main.py</code> must enable CORS</strong> for the frontend origin, or every call from <code>:5173</code> to <code>:8000</code> fails silently in the browser:</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">fastapi.middleware.cors</span><span class="w"> </span><span class="kn">import</span> <span class="n">CORSMiddleware</span>
+<span class="n">app</span><span class="o">.</span><span class="n">add_middleware</span><span class="p">(</span><span class="n">CORSMiddleware</span><span class="p">,</span> <span class="n">allow_origins</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;http://localhost:5173&quot;</span><span class="p">],</span>
+                    <span class="n">allow_methods</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;*&quot;</span><span class="p">],</span> <span class="n">allow_headers</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;*&quot;</span><span class="p">])</span>
+</code></pre></div>
+
+<hr />
+<h2 id="10-dummy-data-real-sources-23-examples-per-lane">10. Dummy data — real sources, 2–3 examples per lane</h2>
+<p>Rather than hand-writing fake configs from scratch, pull from the actual repositories these vendors/communities publish — the data is realistic, free, and in some cases <em>is literally what the parsing library's own tests run against.</em></p>
+<h3 id="lane-1-purely-deterministic-cisco-juniper-has-an-ntc-templates-match">Lane 1 — Purely deterministic (Cisco / Juniper, has an ntc-templates match)</h3>
+<p><strong>Best source:</strong> the <code>ntc-templates</code> repo's own test fixtures — real, anonymized <code>show run</code> / <code>show version</code> outputs used to test the exact library you're integrating.
+🔗 <code>https://github.com/networktocode/ntc-templates/tree/master/tests</code> — browse <code>tests/cisco_ios/show_run/</code> and <code>tests/juniper_junos/</code></p>
+<p><strong>Ready-to-use example 1 — Cisco IOS (minimal <code>show run</code> fragment):</strong></p>
+<div class="codehilite"><pre><span></span><code>Building configuration...
+
+hostname EDGE-SW01
+!
+service password-encryption
+!
+line vty 0 4
+ transport input ssh
+!
+ip ssh version 2
+no service telnet
+!
+username admin privilege 15 secret 5 $1$abc$XyZ...
+</code></pre></div>
+
+<p><strong>Ready-to-use example 2 — Juniper Junos (set-style):</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="nv">system</span><span class="w"> </span>{
+<span class="w">    </span><span class="nv">host</span><span class="o">-</span><span class="nv">name</span><span class="w"> </span><span class="nv">CORE</span><span class="o">-</span><span class="nv">FW01</span><span class="c1">;</span>
+<span class="w">    </span><span class="nv">services</span><span class="w"> </span>{
+<span class="w">        </span><span class="nv">ssh</span><span class="w"> </span>{
+<span class="w">            </span><span class="nv">protocol</span><span class="o">-</span><span class="nv">version</span><span class="w"> </span><span class="nv">v2</span><span class="c1">;</span>
+<span class="w">        </span>}
+<span class="w">    </span>}
+}
+<span class="nv">system</span><span class="w"> </span>{
+<span class="w">    </span><span class="nv">login</span><span class="w"> </span>{
+<span class="w">        </span><span class="nv">retry</span><span class="o">-</span><span class="nv">options</span><span class="w"> </span>{
+<span class="w">            </span><span class="nv">tries</span><span class="o">-</span><span class="nv">before</span><span class="o">-</span><span class="k">disconnect</span><span class="w"> </span><span class="mi">3</span><span class="c1">;</span>
+<span class="w">        </span>}
+<span class="w">    </span>}
+}
+</code></pre></div>
+
+<h3 id="lane-2-llm-fallback-known-vendor-no-deterministic-template">Lane 2 — LLM fallback (known vendor, no deterministic template)</h3>
+<p><strong>Best source:</strong> <code>PaloAltoNetworks/iron-skillet</code> — Palo Alto's own official GitHub repo of ready-to-load NGFW configs in both XML and <code>set</code>-command format.
+🔗 <code>https://github.com/PaloAltoNetworks/iron-skillet</code> → <code>loadable_configs/</code></p>
+<p><strong>Ready-to-use example 1 — Palo Alto (<code>set</code> format fragment):</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="nv">set</span><span class="w"> </span><span class="nv">deviceconfig</span><span class="w"> </span><span class="nv">system</span><span class="w"> </span><span class="nv">timezone</span><span class="w"> </span><span class="nv">UTC</span>
+<span class="nv">set</span><span class="w"> </span><span class="nv">deviceconfig</span><span class="w"> </span><span class="nv">system</span><span class="w"> </span><span class="nv">update</span><span class="o">-</span><span class="nv">server</span><span class="w"> </span><span class="nv">updates</span>.<span class="nv">paloaltonetworks</span>.<span class="nv">com</span>
+<span class="nv">set</span><span class="w"> </span><span class="nv">network</span><span class="w"> </span><span class="nv">interface</span><span class="w"> </span><span class="nv">ethernet</span><span class="w"> </span><span class="nv">ethernet1</span><span class="o">/</span><span class="mi">1</span><span class="w"> </span><span class="nv">layer3</span><span class="w"> </span><span class="nv">ip</span><span class="w"> </span><span class="mi">10</span>.<span class="mi">0</span>.<span class="mi">0</span>.<span class="mi">1</span><span class="o">/</span><span class="mi">24</span>
+<span class="nv">set</span><span class="w"> </span><span class="nv">rulebase</span><span class="w"> </span><span class="nv">security</span><span class="w"> </span><span class="nv">rules</span><span class="w"> </span><span class="nv">allow</span><span class="o">-</span><span class="nv">outbound</span><span class="w"> </span><span class="nv">source</span><span class="w"> </span><span class="nv">any</span><span class="w"> </span><span class="nv">destination</span><span class="w"> </span><span class="nv">any</span><span class="w"> </span><span class="nv">application</span><span class="w"> </span><span class="nv">any</span><span class="w"> </span><span class="nv">action</span><span class="w"> </span><span class="nv">allow</span><span class="w"> </span><span class="nv">log</span><span class="o">-</span><span class="k">end</span><span class="w"> </span><span class="nv">yes</span>
+</code></pre></div>
+
+<p><strong>Ready-to-use example 2 — FortiOS (<code>config</code> block fragment):</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="nv">config</span><span class="w"> </span><span class="nv">system</span><span class="w"> </span><span class="nv">global</span>
+<span class="w">    </span><span class="nv">set</span><span class="w"> </span><span class="nv">admin</span><span class="o">-</span><span class="nv">ssh</span><span class="o">-</span><span class="nv">v1</span><span class="w"> </span><span class="nv">disable</span>
+<span class="w">    </span><span class="nv">set</span><span class="w"> </span><span class="nv">admintimeout</span><span class="w"> </span><span class="mi">15</span>
+<span class="k">end</span>
+<span class="nv">config</span><span class="w"> </span><span class="nv">system</span><span class="w"> </span><span class="nv">interface</span>
+<span class="w">    </span><span class="nv">edit</span><span class="w"> </span><span class="s2">&quot;port1&quot;</span>
+<span class="w">        </span><span class="nv">set</span><span class="w"> </span><span class="nv">ip</span><span class="w"> </span><span class="mi">10</span>.<span class="mi">10</span>.<span class="mi">10</span>.<span class="mi">1</span><span class="w"> </span><span class="mi">255</span>.<span class="mi">255</span>.<span class="mi">255</span>.<span class="mi">0</span>
+<span class="w">        </span><span class="nv">set</span><span class="w"> </span><span class="nv">allowaccess</span><span class="w"> </span><span class="nv">ping</span><span class="w"> </span><span class="nv">https</span><span class="w"> </span><span class="nv">ssh</span>
+<span class="w">    </span><span class="k">next</span>
+<span class="k">end</span>
+</code></pre></div>
+
+<p>FortiOS CLI reference examples: <code>https://docs.fortinet.com</code> (search "FortiOS CLI reference config system global")</p>
+<h3 id="lane-3-human-review-llm-fallback-genuinely-unrecognized-format">Lane 3 — Human review + LLM fallback (genuinely unrecognized format)</h3>
+<p><strong>Best source:</strong> SONiC's own <code>config_db.json</code> schema documentation and sample configs, straight from the <code>sonic-net/sonic-buildimage</code> repo — a format almost nothing has a hand-built parser for.
+🔗 <code>https://github.com/sonic-net/sonic-buildimage</code> — see <code>src/sonic-yang-models/doc/Configuration.md</code> and <code>src/sonic-config-engine/config_samples.py</code> (ships <code>t1</code>/<code>l2</code>/<code>empty</code> preset sample configs)
+🔗 <code>https://github.com/sonic-net/SONiC/wiki/Configuration</code></p>
+<p><strong>Ready-to-use example 1 — SONiC <code>config_db.json</code> fragment:</strong></p>
+<div class="codehilite"><pre><span></span><code><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;DEVICE_METADATA&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">&quot;localhost&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nt">&quot;hostname&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sonic-tor01&quot;</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">&quot;hwsku&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Accton-AS7326-56X&quot;</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;BGP_NEIGHBOR&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">&quot;10.0.0.1&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nt">&quot;admin_status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;up&quot;</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">&quot;asn&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;65100&quot;</span><span class="p">,</span>
+<span class="w">            </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;T1-01&quot;</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><strong>Ready-to-use example 2 — MikroTik RouterOS export (<code>.rsc</code>), an equally good "never seen it" case:</strong>
+🔗 official export docs: <code>https://help.mikrotik.com/docs/spaces/ROS/pages/328155/Configuration+Management</code></p>
+<div class="codehilite"><pre><span></span><code><span class="o">/</span><span class="kd">interface</span><span class="w"> </span><span class="nx">bridge</span>
+<span class="nx">add</span><span class="w"> </span><span class="nx">name</span><span class="p">=</span><span class="nx">bridge1</span>
+<span class="o">/</span><span class="nx">ip</span><span class="w"> </span><span class="nx">address</span>
+<span class="nx">add</span><span class="w"> </span><span class="nx">address</span><span class="p">=</span><span class="m m-Double">10.1.0.1</span><span class="o">/</span><span class="mi">24</span><span class="w"> </span><span class="kd">interface</span><span class="p">=</span><span class="nx">bridge1</span>
+<span class="o">/</span><span class="nx">ip</span><span class="w"> </span><span class="nx">service</span>
+<span class="nx">set</span><span class="w"> </span><span class="nx">telnet</span><span class="w"> </span><span class="nx">disabled</span><span class="p">=</span><span class="nx">yes</span>
+<span class="nx">set</span><span class="w"> </span><span class="nx">ssh</span><span class="w"> </span><span class="nx">port</span><span class="p">=</span><span class="mi">22</span>
+</code></pre></div>
+
+<p><strong>Why these two work well as lane-3 examples:</strong> neither SONiC's JSON key-value schema nor MikroTik's <code>/path</code> + <code>add</code>/<code>set</code> syntax resembles any Cisco/Juniper template structure at all — a deterministic parser genuinely has nothing to match against, so these are honest tests of the full fallback-plus-training loop, not just a relabeled lane-2 case.</p>
+<hr />
+<h2 id="quick-start-order">Quick-start order</h2>
+<ol>
+<li>Stand up Postgres + FastAPI skeleton, wire the <code>devices</code> upload endpoint — include the new identity columns from day one, retrofitting them later means a migration plus a report-template rewrite.</li>
+<li>Drop lane-1 fixtures in, get <code>ntc_templates.parse_output</code> returning real structured data via the assumed-command mapping in §7.1/7.2, including the try/except fallback.</li>
+<li>Hand-write 3–4 <code>compliance_rules</code> YAML entries and get pass/fail working end to end on lane 1 only — this proves the whole spine before AI enters the picture.</li>
+<li>Add the LLM fallback lane with async <code>instructor</code> + redaction + the Pydantic schema, test against lane-2 fixtures.</li>
+<li>Add the confidence threshold gate and the <code>corrections</code> table (with the re-evaluate-on-correction trigger), test against lane-3 fixtures.</li>
+<li>Wire the PDF report last — it's the least risky part and easiest to leave for the end, but make sure the device identity block and autoescape are in from the first draft of the template.</li>
+</ol>
+</div>
+</body>
+</html>
