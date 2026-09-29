@@ -1,0 +1,19 @@
+fastapi>=0.109.0
+uvicorn>=0.27.0
+sqlmodel>=0.0.14
+# alembic removed (Phase 9): versions/ was empty and nothing used it.
+# Schema is managed via SQLModel.metadata.create_all() on startup.
+# Re-add alembic and generate an initial revision when ready for migration discipline.
+psycopg2-binary>=2.9.9
+pydantic>=2.7.0
+pydantic-settings>=2.1.0
+python-multipart>=0.0.9
+pytest>=8.0.0
+pyyaml>=6.0.1
+# ntc-templates removed — was only used by deleted dead-code files
+# (deterministic.py, tokenizers.py). The engine.py YAML-pack approach
+# does not require it.
+jinja2>=3.1.0
+weasyprint>=70.0
+reportlab>=4.0.0
+packaging>=24.0

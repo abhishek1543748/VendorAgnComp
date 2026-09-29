@@ -1,0 +1,24 @@
+pack: arista_eos
+vendor: arista
+tokenizer_family: indent_delimited
+assumed_command: "show running-config"
+
+patterns:
+  - pattern: "^!\\s*device:.*EOS-"
+    weight: 0.5
+  - pattern: "^management api http-commands"
+    weight: 0.4
+  - pattern: "^vrf instance\\s"
+    weight: 0.3
+  - pattern: "^service routing protocols model"
+    weight: 0.3
+  - pattern: "^username\\s+\\S+.*\\brole\\s+network-"
+    weight: 0.3
+  - pattern: "^transceiver qsfp default-mode"
+    weight: 0.2
+  - pattern: "^dns domain\\s"
+    weight: 0.2
+  - pattern: "^no aaa root"
+    weight: 0.2
+  - pattern: "^management ssh"
+    weight: 0.2

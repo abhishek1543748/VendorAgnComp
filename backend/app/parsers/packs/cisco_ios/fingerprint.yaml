@@ -1,0 +1,34 @@
+pack: cisco_ios
+vendor: cisco
+tokenizer_family: indent_delimited
+assumed_command: "show running-config"
+
+patterns:
+  - pattern: "^building configuration\\.\\.\\."
+    weight: 0.4
+  - pattern: "^current configuration\\s*:"
+    weight: 0.3
+  - pattern: "^version\\s+\\d+\\.\\d+[^;\\n]*$"
+    weight: 0.3
+  - pattern: "^hostname\\s+\\S+"
+    weight: 0.2
+  - pattern: "^interface\\s+(Ethernet|GigabitEthernet|FastEthernet|TenGigabitEthernet)"
+    weight: 0.2
+  - pattern: "^line vty\\s+\\d+"
+    weight: 0.1
+  - pattern: "^line con\\s+\\d+"
+    weight: 0.2
+  - pattern: "^boot-start-marker"
+    weight: 0.3
+  - pattern: "^service timestamps"
+    weight: 0.2
+  - pattern: "^license udi pid"
+    weight: 0.2
+
+# Phase 5: Lines matching any of these regexes are stripped before computing
+# the config_hash, so volatile headers (timestamps, byte counts) don't cause
+# false "content changed" mismatches on an otherwise identical config.
+hash_ignore:
+  - "^!.*$"                              # all comment lines
+  - "^building configuration.*$"        # header
+  - "^current configuration\\s*:.*$"   # byte count line (changes on every save)

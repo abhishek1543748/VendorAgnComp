@@ -1,0 +1,23 @@
+fields:
+
+  # Best-effort extraction of the most universally common fields.
+  # These patterns appear across Cisco-like, Arista, and many others.
+
+  - control_area: hostname
+    match: "^hostname (?P<value>\\S+)"
+    scope: global
+
+  - control_area: ntp_server
+    match: "^ntp server (?P<value>\\S+)"
+    scope: global
+    multi: true
+
+  - control_area: logging_host
+    match: "^logging (?:host )?(?P<value>\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})"
+    scope: global
+    multi: true
+
+  - control_area: name_server
+    match: "^(?:ip )?name-server (?P<value>\\S+)"
+    scope: global
+    multi: true

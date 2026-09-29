@@ -1,0 +1,11 @@
+pack: generic_flat
+vendor: generic
+tokenizer_family: flat
+assumed_command: "show running-config"
+
+# Lowest possible priority — only wins if no other pack clears MIN_SCORE
+patterns:
+  - pattern: "^hostname\\s+\\S+"
+    weight: 0.05
+  - pattern: "^ntp server\\s+\\S+"
+    weight: 0.05

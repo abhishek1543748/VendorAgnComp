@@ -1,0 +1,139 @@
+# cisco_ios/spec.yaml
+# Each field defines:
+#   control_area: canonical field name used in DB and rules engine
+#   match: Python regex with a named capture group (?P<value>...)
+#   scope: global | interface | line | vty  (default: global)
+#   multi: true if the field can appear more than once (e.g. ntp_server)
+#   instance_from: regex group name that captures the instance key (e.g. interface name)
+
+fields:
+
+  # ── Identity ───────────────────────────────────────────────
+  - control_area: hostname
+    match: "^hostname (?P<value>\\S+)"
+    scope: global
+
+  - control_area: domain_name
+    match: "^ip domain[- ]name (?P<value>\\S+)"
+    scope: global
+
+  - control_area: firmware_version
+    match: "^version (?P<value>[\\d\\.]+)"
+    scope: global
+
+  - control_area: model
+    match: "^license udi pid (?P<value>\\S+)"
+    scope: global
+
+  - control_area: serial_number
+    match: "^license udi pid \\S+ sn (?P<value>\\S+)"
+    scope: global
+
+  # ── Management Plane ────────────────────────────────────────
+  - control_area: service_password_encryption
+    match: "^(?P<value>no )?service password-encryption"
+    scope: global
+    transform: "present_absent"   # 'no ' prefix → disabled; match without → enabled
+
+  - control_area: aaa_new_model
+    match: "^(?P<value>no )?aaa new-model"
+    scope: global
+    transform: "present_absent"
+
+  - control_area: ssh_version
+    match: "^ip ssh version (?P<value>\\d)"
+    scope: global
+
+  - control_area: http_server
+    match: "^(?P<value>no )?ip http server$"
+    scope: global
+    transform: "present_absent_inverted"  # 'no' → disabled is the GOOD state
+
+  - control_area: http_secure_server
+    match: "^(?P<value>no )?ip http secure-server$"
+    scope: global
+    transform: "present_absent"
+
+  - control_area: enable_secret_type
+    match: "^enable secret (?P<value>\\d+)"
+    scope: global
+
+  # ── NTP / Time ──────────────────────────────────────────────
+  - control_area: ntp_server
+    match: "^ntp server (?P<value>\\S+)"
+    scope: global
+    multi: true
+
+  - control_area: ntp_authenticate
+    match: "^(?P<value>no )?ntp authenticate$"
+    scope: global
+    transform: "present_absent"
+
+  # ── Logging / Syslog ────────────────────────────────────────
+  - control_area: logging_host
+    match: "^logging (?:host )?(?P<value>\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})"
+    scope: global
+    multi: true
+
+  - control_area: logging_buffered
+    match: "^logging buffered (?P<value>\\d+)"
+    scope: global
+
+  - control_area: logging_console
+    match: "^logging console (?P<value>\\S+)"
+    scope: global
+
+  # ── DNS ─────────────────────────────────────────────────────
+  - control_area: name_server
+    match: "^ip name-server (?P<value>\\S+)"
+    scope: global
+    multi: true
+
+  # ── SNMP ────────────────────────────────────────────────────
+  - control_area: snmp_community
+    match: "^snmp-server community (?P<value>\\S+)"
+    scope: global
+    multi: true
+
+  - control_area: snmp_version
+    match: "^snmp-server (?:host \\S+ version (?P<value>\\S+)|enable traps)"
+    scope: global
+
+  # ── Banner ──────────────────────────────────────────────────
+  - control_area: banner_motd
+    match: "^banner motd (?P<value>.+)"
+    scope: global
+
+  # ── Interface-scoped (instance_id = interface name) ─────────
+  - control_area: proxy_arp
+    match: "^(?P<value>no )?ip proxy-arp$"
+    scope: interface
+    transform: "present_absent_inverted"
+
+  - control_area: ip_redirects
+    match: "^(?P<value>no )?ip redirects$"
+    scope: interface
+    transform: "present_absent_inverted"
+
+  - control_area: ip_unreachables
+    match: "^(?P<value>no )?ip unreachables$"
+    scope: interface
+    transform: "present_absent_inverted"
+
+  # ── VTY / Console line-scoped ────────────────────────────────
+  - control_area: transport_input
+    match: "^transport input (?P<value>.+)"
+    scope: vty
+
+  - control_area: exec_timeout
+    match: "^exec-timeout (?P<value>\\d+ \\d+)"
+    scope: vty
+    transform: "exec_timeout_seconds"   # converts "M S" → total seconds for max_value checks
+
+  - control_area: access_class
+    match: "^access-class (?P<value>\\S+) in"
+    scope: vty
+
+  - control_area: login_method
+    match: "^login (?P<value>\\S+)"
+    scope: vty

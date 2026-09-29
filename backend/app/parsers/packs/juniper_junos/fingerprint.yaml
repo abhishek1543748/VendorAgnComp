@@ -1,0 +1,18 @@
+pack: juniper_junos
+vendor: juniper
+tokenizer_family: brace_delimited
+assumed_command: "show configuration"
+
+patterns:
+  - pattern: "^system\\s*\\{"
+    weight: 0.4
+  - pattern: "^interfaces\\s*\\{"
+    weight: 0.3
+  - pattern: "^\\s+host-name\\s+\\S+;"
+    weight: 0.3
+  - pattern: "^version\\s+[\\w\\.\\-]+;"
+    weight: 0.2
+  - pattern: "^## Last (commit|changed):"
+    weight: 0.2
+  - pattern: "^(protocols|security|groups|routing-options)\\s*\\{"
+    weight: 0.2

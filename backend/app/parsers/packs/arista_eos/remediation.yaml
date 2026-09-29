@@ -1,0 +1,29 @@
+remediation:
+
+  aaa_root:
+    by_expected:
+      disabled: ["no aaa root"]
+
+  ssh_idle_timeout:
+    template: ["management ssh", " idle-timeout {expected}"]
+
+  http_server:
+    by_expected:
+      disabled: ["management api http-commands", "   no protocol http"]
+      enabled:  ["management api http-commands", "   protocol http"]
+
+  http_secure_server:
+    by_expected:
+      enabled: ["management api http-commands", "   protocol https"]
+
+  ntp_server:
+    template: ["ntp server {expected}"]
+    rollback: ["no ntp server {expected}"]
+
+  logging_host:
+    template: ["logging host {expected}"]
+    rollback: ["no logging host {expected}"]
+
+  snmp_community:
+    verify: skip
+    skip_reason: "SNMP community strings are security-sensitive; provide manually"

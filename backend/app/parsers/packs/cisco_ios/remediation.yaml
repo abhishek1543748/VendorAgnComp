@@ -1,0 +1,96 @@
+remediation:
+
+  hostname:
+    template: ["hostname {expected}"]
+
+  domain_name:
+    template: ["ip domain name {expected}"]
+
+  firmware_version:
+    verify: skip
+    skip_reason: "IOS version is set by boot image, not CLI"
+
+  service_password_encryption:
+    by_expected:
+      enabled: ["service password-encryption"]
+      disabled: ["no service password-encryption"]
+
+  aaa_new_model:
+    by_expected:
+      enabled: ["aaa new-model"]
+      disabled: ["no aaa new-model"]
+
+  ssh_version:
+    template: ["ip ssh version {expected}"]
+
+  http_server:
+    by_expected:
+      disabled: ["no ip http server"]
+      enabled: ["ip http server"]
+
+  http_secure_server:
+    by_expected:
+      enabled: ["ip http secure-server"]
+      disabled: ["no ip http secure-server"]
+
+  enable_secret_type:
+    by_expected:
+      "9": ["enable algorithm-type scrypt secret <PASSWORD>"]
+      "8": ["enable algorithm-type sha256 secret <PASSWORD>"]
+    verify: skip
+    skip_reason: "Device hashes the secret — typed command never reads back as a type digit"
+
+  ntp_server:
+    template: ["ntp server {expected}"]
+    rollback: ["no ntp server {expected}"]
+
+  ntp_authenticate:
+    by_expected:
+      enabled: ["ntp authenticate"]
+      disabled: ["no ntp authenticate"]
+
+  logging_host:
+    template: ["logging host {expected}"]
+    rollback: ["no logging host {expected}"]
+
+  logging_buffered:
+    by_expected:
+      enabled: ["logging buffered 16384 informational"]
+      disabled: ["no logging buffered"]
+
+  name_server:
+    template: ["ip name-server {expected}"]
+    rollback: ["no ip name-server {expected}"]
+
+  snmp_community:
+    verify: skip
+    skip_reason: "SNMP community strings are security-sensitive; provide manually"
+
+  proxy_arp:
+    by_expected:
+      disabled: ["interface {instance}", " no ip proxy-arp"]
+      enabled:  ["interface {instance}", " ip proxy-arp"]
+
+  ip_redirects:
+    by_expected:
+      disabled: ["interface {instance}", " no ip redirects"]
+      enabled:  ["interface {instance}", " ip redirects"]
+
+  ip_unreachables:
+    by_expected:
+      disabled: ["interface {instance}", " no ip unreachables"]
+      enabled:  ["interface {instance}", " ip unreachables"]
+
+  transport_input:
+    template: ["line {instance}", " transport input {expected}"]
+
+  exec_timeout:
+    by_expected:
+      "600": ["line {instance}", " exec-timeout 10 0"]
+    template: ["line {instance}", " exec-timeout {expected}"]
+
+  access_class:
+    template: ["line {instance}", " access-class {expected} in"]
+
+  login_method:
+    template: ["line {instance}", " login {expected}"]

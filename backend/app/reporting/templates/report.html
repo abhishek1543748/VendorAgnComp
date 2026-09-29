@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Compliance Report - {{ device.hostname or 'Unknown Host' }}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 20mm;
+        }
+        body {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            color: #1e293b;
+            line-height: 1.5;
+            font-size: 13px;
+        }
+        h1 {
+            color: #0f172a;
+            font-size: 24px;
+            margin-bottom: 5px;
+            border-bottom: 2px solid #2563eb;
+            padding-bottom: 8px;
+        }
+        h2 {
+            color: #1e293b;
+            font-size: 16px;
+            margin-top: 25px;
+            margin-bottom: 12px;
+            border-bottom: 1px solid #cbd5e1;
+            padding-bottom: 4px;
+        }
+        .meta-table, .findings-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        .meta-table th, .meta-table td, .findings-table th, .findings-table td {
+            border: 1px solid #e2e8f0;
+            padding: 8px 12px;
+            text-align: left;
+        }
+        .meta-table th {
+            background-color: #f8fafc;
+            width: 25%;
+            font-weight: 600;
+            color: #475569;
+        }
+        .findings-table th {
+            background-color: #f1f5f9;
+            color: #334155;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .badge-pass { background-color: #dcfce7; color: #166534; }
+        .badge-fail { background-color: #fee2e2; color: #991b1b; }
+        .badge-needs-review { background-color: #fef3c7; color: #92400e; }
+
+        /* Executive Summary */
+        .exec-summary {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        .score-box {
+            flex: 0 0 auto;
+            width: 130px;
+            text-align: center;
+            border-radius: 8px;
+            padding: 16px 10px;
+            border: 2px solid #e2e8f0;
+        }
+        .score-box .score-number {
+            font-size: 36px;
+            font-weight: 800;
+            line-height: 1;
+        }
+        .score-box .score-label {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 4px;
+        }
+        .score-high   { border-color: #22c55e; color: #166534; background: #f0fdf4; }
+        .score-medium { border-color: #f59e0b; color: #92400e; background: #fffbeb; }
+        .score-low    { border-color: #ef4444; color: #991b1b; background: #fef2f2; }
+
+        .summary-stats {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .stat-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 10px 14px;
+            background: #f8fafc;
+        }
+        .stat-card .stat-value { font-size: 22px; font-weight: 700; }
+        .stat-card .stat-desc  { font-size: 11px; color: #64748b; }
+        .stat-pass   { color: #166534; }
+        .stat-fail   { color: #991b1b; }
+        .stat-review { color: #92400e; }
+        .stat-skip   { color: #6b7280; }
+
+        .risk-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            margin-top: 6px;
+        }
+        .risk-HIGH   { background: #fee2e2; color: #991b1b; }
+        .risk-MEDIUM { background: #fef3c7; color: #92400e; }
+        .risk-LOW    { background: #dcfce7; color: #166534; }
+
+        .severity-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+        .sev-pill {
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .sev-critical { background: #fca5a5; color: #7f1d1d; }
+        .sev-high     { background: #fdba74; color: #7c2d12; }
+        .sev-medium   { background: #fde68a; color: #78350f; }
+        .sev-low      { background: #bfdbfe; color: #1e3a8a; }
+
+        /* Parse quality warning */
+        .parse-warning {
+            background: #fffbeb;
+            border: 1px solid #f59e0b;
+            border-left: 4px solid #f59e0b;
+            border-radius: 4px;
+            padding: 10px 14px;
+            margin-bottom: 16px;
+            font-size: 12px;
+            color: #78350f;
+        }
+
+        /* Framework tag */
+        .framework-tag {
+            display: inline-block;
+            background: #eff6ff;
+            color: #1d4ed8;
+            border: 1px solid #bfdbfe;
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+
+        /* Audit trail */
+        .audit-row {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 4px;
+        }
+
+        .remediation-block {
+            background-color: #0f172a;
+            color: #f8fafc;
+            font-family: 'Courier New', Courier, monospace;
+            padding: 10px 14px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin-top: 6px;
+            margin-bottom: 14px;
+            font-size: 12px;
+        }
+        .remediation-item { margin-bottom: 15px; }
+        .remediation-title { font-weight: bold; color: #334155; }
+
+        .footer {
+            margin-top: 30px;
+            padding-top: 10px;
+            border-top: 1px solid #e2e8f0;
+            font-size: 10px;
+            color: #94a3b8;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    {# ── Pre-compute summary stats ── #}
+    {% set ns = namespace(pass_count=0, fail_count=0, review_count=0, skip_count=0) %}
+    {% set sev = namespace(critical=0, high=0, medium=0, low=0) %}
+    {% set failed_findings = [] %}
+    {% set review_findings = [] %}
+    {% for f in findings %}
+        {% if f.status|lower == 'pass' %}
+            {% set ns.pass_count = ns.pass_count + 1 %}
+        {% elif f.status|lower == 'fail' %}
+            {% set ns.fail_count = ns.fail_count + 1 %}
+            {% set _ = failed_findings.append(f) %}
+            {% if f.severity|lower == 'critical' %}{% set sev.critical = sev.critical + 1 %}{% endif %}
+            {% if f.severity|lower == 'high' %}{% set sev.high = sev.high + 1 %}{% endif %}
+            {% if f.severity|lower == 'medium' %}{% set sev.medium = sev.medium + 1 %}{% endif %}
+            {% if f.severity|lower == 'low' %}{% set sev.low = sev.low + 1 %}{% endif %}
+        {% elif f.status|lower == 'needs_review' %}
+            {% set ns.review_count = ns.review_count + 1 %}
+            {% set _ = review_findings.append(f) %}
+        {% else %}
+            {% set ns.skip_count = ns.skip_count + 1 %}
+        {% endif %}
+    {% endfor %}
+    {% set total = ns.pass_count + ns.fail_count + ns.review_count + ns.skip_count %}
+    {% set score_pct = ((ns.pass_count / total * 100) | round(0) | int) if total > 0 else 0 %}
+    {% if score_pct >= 80 %}{% set risk = "LOW" %}{% set score_cls = "score-high" %}
+    {% elif score_pct >= 50 %}{% set risk = "MEDIUM" %}{% set score_cls = "score-medium" %}
+    {% else %}{% set risk = "HIGH" %}{% set score_cls = "score-low" %}{% endif %}
+
+    <h1>Device Compliance Evaluation Report</h1>
+    <p class="audit-row">
+        Generated on {{ generated_at }}
+        &nbsp;·&nbsp; Uploaded: {{ device.uploaded_at.strftime('%Y-%m-%d %H:%M UTC') if device.uploaded_at else 'N/A' }}
+        &nbsp;·&nbsp; Device ID: <code>{{ device.id }}</code>
+    </p>
+
+    {% if parse_warnings %}
+    <div class="parse-warning">
+        ⚠️ <strong>Parse Quality Notice:</strong>
+        {% for w in parse_warnings %}<div>{{ w }}</div>{% endfor %}
+        Some controls may not have been evaluated due to incomplete field extraction.
+    </div>
+    {% endif %}
+
+    <!-- Section 0: Executive Summary -->
+    <h2>1.Executive Summary
+        {% if framework %}<span class="framework-tag">{{ framework }}</span>{% endif %}
+    </h2>
+    <div class="exec-summary">
+        <div class="score-box {{ score_cls }}">
+            <div class="score-number">{{ score_pct }}%</div>
+            <div class="score-label">Compliant</div>
+            <div class="score-label">{{ ns.pass_count }}/{{ total }} controls</div>
+            <div style="margin-top:8px;">
+                <span class="risk-badge risk-{{ risk }}">{{ risk }} Risk</span>
+            </div>
+        </div>
+        <div class="summary-stats">
+            <div class="stat-card">
+                <div class="stat-value stat-pass">{{ ns.pass_count }}</div>
+                <div class="stat-desc">Controls Passed</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value stat-fail">{{ ns.fail_count }}</div>
+                <div class="stat-desc">Controls Failed</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value stat-review">{{ ns.review_count }}</div>
+                <div class="stat-desc">Need Manual Review</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value stat-skip">{{ ns.skip_count }}</div>
+                <div class="stat-desc">Not Evaluated / Skipped</div>
+            </div>
+        </div>
+    </div>
+
+    {% if ns.fail_count > 0 %}
+    <div>
+        <strong>Failed controls by severity:</strong>
+        <div class="severity-row">
+            {% if sev.critical > 0 %}<span class="sev-pill sev-critical">Critical: {{ sev.critical }}</span>{% endif %}
+            {% if sev.high > 0 %}<span class="sev-pill sev-high">High: {{ sev.high }}</span>{% endif %}
+            {% if sev.medium > 0 %}<span class="sev-pill sev-medium">Medium: {{ sev.medium }}</span>{% endif %}
+            {% if sev.low > 0 %}<span class="sev-pill sev-low">Low: {{ sev.low }}</span>{% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Section 1: Device Identification -->
+    <h2>2 Device Identification</h2>
+    <table class="meta-table">
+        <tr>
+            <th>Hostname</th>
+            <td>{{ device.hostname or 'N/A' }}</td>
+            <th>Serial Number</th>
+            <td>{{ device.serial_number or 'N/A' }}</td>
+        </tr>
+        <tr>
+            <th>Model</th>
+            <td>{{ device.model or 'N/A' }}</td>
+            <th>Firmware Version</th>
+            <td>{{ device.firmware_version or 'N/A' }}</td>
+        </tr>
+        <tr>
+            <th>Vendor</th>
+            <td>{{ device.vendor or 'N/A' }}</td>
+            <th>OS / Platform</th>
+            <td>{{ device.os_hint or 'N/A' }}</td>
+        </tr>
+        <tr>
+            <th>Detection Confidence</th>
+            <td>{{ ((device.detection_confidence or 0) * 100) | round(0) | int }}%</td>
+            <th>Source File</th>
+            <td>{{ device.filename }}</td>
+        </tr>
+    </table>
+
+    <!-- Section 2: Compliance Findings -->
+    <h2>3 Compliance Findings
+        {% if framework %}<span class="framework-tag">{{ framework }}</span>{% endif %}
+    </h2>
+    {% if findings %}
+    <table class="findings-table">
+        <thead>
+            <tr>
+                <th>Control ID</th>
+                <th>Instance</th>
+                <th>Status</th>
+                <th>Severity</th>
+                <th>Observed Value</th>
+                <th>Raw Source Line</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for finding in findings %}
+            <tr>
+                <td><strong>{{ finding.control_id }}</strong></td>
+                <td>{{ finding.instance_id or 'Global' }}</td>
+                <td>
+                    {% if finding.status|lower == 'pass' %}
+                        <span class="badge badge-pass">PASS</span>
+                    {% elif finding.status|lower == 'fail' %}
+                        <span class="badge badge-fail">FAIL</span>
+                    {% else %}
+                        <span class="badge badge-needs-review">{{ finding.status }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ finding.severity or 'N/A' }}</td>
+                <td><code>{{ finding.observed_value or 'N/A' }}</code></td>
+                <td><small>{{ finding.raw_line or 'N/A' }}</small></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>No compliance findings recorded for this device.</p>
+    {% endif %}
+
+    <!-- Section 3: Remediation Paths -->
+    <h2>4 Remediation Paths</h2>
+    {% if failed_findings or review_findings %}
+        {% if failed_findings %}
+            <p>The following remediation CLI sequences apply to failed compliance controls:</p>
+            {% for finding in failed_findings %}
+            <div class="remediation-item">
+                <div class="remediation-title">Control {{ finding.control_id }} (Severity: {{ finding.severity or 'Unspecified' }})</div>
+                {% if finding.remediation_cli %}
+                <div class="remediation-block">{{ finding.remediation_cli }}</div>
+                {% else %}
+                <p style="color: #64748b; font-style: italic;">No automated CLI remediation path defined for this control.</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% endif %}
+        {% if review_findings %}
+            <p style="color: #92400e; font-weight: bold; margin-top: 15px;">
+                Note: {{ review_findings | length }} controls require manual review to confirm compliance.
+            </p>
+        {% endif %}
+    {% else %}
+    <p style="color: #166534; font-weight: 500;">All evaluated controls passed. No remediation steps required.</p>
+    {% endif %}
+
+    <div class="footer">
+        VendorAgnostic Compliance Platform &nbsp;·&nbsp; {{ generated_at }} &nbsp;·&nbsp; Confidential
+    </div>
+
+</body>
+</html>

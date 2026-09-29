@@ -1,0 +1,10 @@
+- control_id: STIG-NET-001
+  framework: STIG
+  control_area: logging_host
+  check_type: presence_required
+  severity: high
+  title: "STIG-NET-001: Ensure a remote syslog target is configured"
+  rationale: >
+    DISA STIG requires that network devices send logs to a centralised syslog
+    server so that audit trails cannot be tampered with locally.
+    This control asserts that at least one remote logging host is configured.

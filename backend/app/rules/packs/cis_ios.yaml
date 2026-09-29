@@ -1,0 +1,27 @@
+- control_id: CIS-1.1
+  framework: CIS
+  control_area: firmware_version
+  check_type: min_version
+  expected_value: '15.2'
+  severity: high
+  title: "Ensure IOS firmware is at minimum supported version"
+  rationale: "Running outdated firmware exposes the device to known CVEs."
+
+- control_id: CIS-2.1
+  framework: CIS
+  control_area: hostname
+  check_type: presence_required
+  severity: low
+  title: "Ensure a hostname is configured"
+  rationale: "A device without a hostname is harder to identify in logs and management systems."
+
+- control_id: CIS-3.1
+  framework: CIS
+  control_area: domain_name
+  check_type: presence_required
+  severity: medium
+  title: "Ensure a domain name is configured"
+  rationale: >
+    A domain name is required for SSH key generation and PKI operations.
+    The specific domain is organisation-specific; this control only asserts
+    that one is set (the previous placeholder 'internal.net' was not a real target).

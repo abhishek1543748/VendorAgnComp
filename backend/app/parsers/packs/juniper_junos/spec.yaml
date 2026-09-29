@@ -1,0 +1,70 @@
+fields:
+
+  # ── Identity ───────────────────────────────────────────────
+  # text is already stripped, so no leading \s+ needed
+  - control_area: hostname
+    match: "^host-name (?P<value>\\S+)"
+    scope: global
+    allow_indented: true
+
+  - control_area: domain_name
+    match: "^domain-name (?P<value>\\S+)"
+    scope: global
+    allow_indented: true
+
+  - control_area: firmware_version
+    match: "^version (?P<value>[\\w\\.\\-]+)"
+    scope: global
+    allow_indented: true
+
+  # ── Management Plane ────────────────────────────────────────
+  - control_area: ssh_version
+    match: "^protocol-version (?P<value>v\\d)"
+    scope: global
+    allow_indented: true
+
+  - control_area: ssh_root_login
+    match: "^root-login (?P<value>\\S+)"
+    scope: global
+    allow_indented: true
+
+  # ── NTP / Time ──────────────────────────────────────────────
+  - control_area: ntp_server
+    match: "^server (?P<value>[\\d\\.a-z][\\d\\.a-z\\-\\.]+)"
+    scope: global
+    allow_indented: true
+    multi: true
+
+  - control_area: time_zone
+    match: "^time-zone (?P<value>\\S+)"
+    scope: global
+    allow_indented: true
+
+  # ── Syslog ──────────────────────────────────────────────────
+  - control_area: logging_host
+    match: "^host (?P<value>[\\d\\.]{7,})"
+    scope: global
+    allow_indented: true
+    multi: true
+
+  # ── SNMP ────────────────────────────────────────────────────
+  - control_area: snmp_community
+    match: "^community (?P<value>\\S+)"
+    scope: global
+    allow_indented: true
+    multi: true
+
+  # ── Interface-scoped ────────────────────────────────────────
+  - control_area: interface_description
+    match: "^description (?P<value>.+)"
+    scope: interface
+    allow_indented: true
+
+  # ── Service state (Phase 4c: inactive: / deactivate handling) ───────────────
+  # The tokenizer strips semicolons, so `inactive: telnet;` becomes the line
+  # text "inactive: telnet".  The transform maps "inactive:..." → disabled.
+  - control_area: telnet_service
+    match: "^(?P<value>inactive:\\s*telnet|telnet)"
+    scope: global
+    allow_indented: true
+    transform: "junos_inactive_prefix"

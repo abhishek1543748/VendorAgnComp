@@ -1,0 +1,78 @@
+fields:
+
+  # ── Identity ───────────────────────────────────────────────
+  - control_area: hostname
+    match: "^hostname (?P<value>\\S+)"
+    scope: global
+
+  - control_area: domain_name
+    match: "^dns domain (?P<value>\\S+)"
+    scope: global
+
+  - control_area: firmware_version
+    # from comment line: ! device: HOSTNAME (MODEL, EOS-4.28.3M)
+    match: "^!\\s*device:.*EOS-(?P<value>[\\w\\.]+)"
+    scope: global
+
+  - control_area: model
+    # from comment line: ! device: HOSTNAME (MODEL, EOS-...)
+    match: "^!\\s*device:\\s*\\S+\\s+\\((?P<value>[^,]+),"
+    scope: global
+
+  # ── Management Plane ────────────────────────────────────────
+  - control_area: aaa_root
+    match: "^(?P<value>no )?aaa root"
+    scope: global
+    transform: "present_absent_inverted"  # 'no aaa root' is the GOOD state
+
+  - control_area: ssh_idle_timeout
+    match: "^\\s+idle-timeout (?P<value>\\d+)"
+    scope: global
+
+  - control_area: http_server
+    match: "^\\s+(?P<value>no )?protocol http$"
+    scope: global
+    transform: "present_absent_inverted"
+
+  - control_area: http_secure_server
+    match: "^\\s+protocol https$"
+    scope: global
+    transform: "literal"
+    literal_value: "enabled"
+
+  # ── NTP / Time ──────────────────────────────────────────────
+  - control_area: ntp_server
+    match: "^ntp server (?P<value>\\S+)"
+    scope: global
+    multi: true
+
+  # ── Logging ─────────────────────────────────────────────────
+  - control_area: logging_host
+    match: "^logging host (?P<value>\\S+)"
+    scope: global
+    multi: true
+
+  - control_area: logging_buffered
+    match: "^logging buffered (?P<value>\\d+)"
+    scope: global
+
+  # ── SNMP ────────────────────────────────────────────────────
+  - control_area: snmp_community
+    match: "^snmp-server community (?P<value>\\S+)"
+    scope: global
+    multi: true
+
+  # ── Users ───────────────────────────────────────────────────
+  - control_area: admin_privilege
+    match: "^username (?P<value>\\S+) privilege 15"
+    scope: global
+    multi: true
+
+  # ── Interface-scoped ────────────────────────────────────────
+  - control_area: interface_vrf
+    match: "^\\s+vrf (?P<value>\\S+)"
+    scope: interface
+
+  - control_area: switchport_mode
+    match: "^\\s+switchport mode (?P<value>\\S+)"
+    scope: interface

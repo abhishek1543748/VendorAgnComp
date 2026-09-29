@@ -1,0 +1,28 @@
+remediation:
+
+  hostname:
+    template: ["set system host-name {expected}"]
+
+  domain_name:
+    template: ["set system domain-name {expected}"]
+
+  ssh_version:
+    by_expected:
+      v2: ["set system services ssh protocol-version v2"]
+
+  ssh_root_login:
+    by_expected:
+      deny: ["set system services ssh root-login deny"]
+      deny-password: ["set system services ssh root-login deny-password"]
+
+  ntp_server:
+    template: ["set system ntp server {expected}"]
+    rollback: ["delete system ntp server {expected}"]
+
+  logging_host:
+    template: ["set system syslog host {expected} any any"]
+    rollback: ["delete system syslog host {expected}"]
+
+  snmp_community:
+    verify: skip
+    skip_reason: "SNMP community strings are security-sensitive; provide manually"

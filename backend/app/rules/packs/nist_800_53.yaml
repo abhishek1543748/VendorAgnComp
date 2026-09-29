@@ -1,0 +1,29 @@
+- control_id: NIST-AC-12
+  framework: NIST_800_53
+  control_area: exec_timeout
+  check_type: max_value
+  # exec_timeout is stored in total seconds after transform (10 min = 600 s).
+  # A value of 0 means "never times out" which FAILS this control.
+  # Any session-timeout > 600 s (10 minutes) also FAILS.
+  expected_value: '600'
+  severity: high
+  title: "AC-12: Session Termination — enforce VTY exec-timeout <= 10 minutes"
+  rationale: >
+    NIST AC-12 requires terminating sessions after inactivity.
+    exec-timeout 10 0 = 600 seconds is the CIS/DISA benchmark maximum.
+    exec-timeout 0 0 (never) must also fail.
+
+- control_id: NIST-IA-5
+  framework: NIST_800_53
+  control_area: enable_secret_type
+  check_type: in_list
+  # Cisco type digits for non-reversible hashes:
+  #   8 = PBKDF2 / SHA-256 (IOS 15.3+)
+  #   9 = scrypt           (IOS 15.3+)
+  # Types 0, 5, and 7 are reversible or MD5 and must FAIL.
+  expected_list: ['8', '9']
+  severity: critical
+  title: "IA-5: Authenticator Management — enable secret must use strong hash (type 8 or 9)"
+  rationale: >
+    Enable secret type 5 (MD5) is brute-forceable; types 0 and 7 are
+    reversible.  Only scrypt (9) and SHA-256 PBKDF2 (8) are acceptable.
